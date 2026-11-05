@@ -75,11 +75,12 @@
 // Raw global memory: the translator reserves that table as a storage buffer under this constant buffer slot, which no game has (Ryujinx GlobalToStorage.GmemMapCbSlot), finds the pool
 // holding an address by a binary search over the table's starts and accesses the address plus the pool's delta through a physical storage buffer pointer
 #define DMSH_GMEM_MAP_CB_SLOT 0xFF
-#define DMSH_GMEM_MAP_LOG2_MIN 12        // the table has 1 << log2 entries, log2 at least this and as many as the pools need (nvn_mtl.m gmem_map); sorted by start: entry 0 is empty (start 0, end 0) and unused entries start at ~0
-#define DMSH_GMEM_MAP_LOG2_WORD 4        // the 32-bit word of entry 0 that holds that log2 (its delta, which no lookup uses: entry 0 holds no address); the shader's search takes as many steps (GlobalToStorage.GmemMapLog2Word)
-#define DMSH_GMEM_MAP_ENTRY 32           // bytes of an entry: start, end (exclusive), delta (Metal GPU address minus guest address), then a 32-bit lookup hint and padding
-#define DMSH_GMEM_HINT_SHIFT 21         // one hint per 2 MiB guest address chunk, in the entry indexed by its low log2 bits. Hint: the chunk's other bits, with the nonzero entry index in the low log2 bits
-// The write log is a bitmap of the entries in the exact pool table bound to the shader, one bit an entry. Bit i in word i / 32 records a store or atomic through entry i.
+// The table is sorted by start: entry 0 is empty (start 0, end 0) and unused entries start at ~0. The host gives it a power of two entries, as many as its pools need and at least
+// DMSH_GMEM_MAP_ENTRIES, and writes that count into entry 0's delta (low word), which the shader's binary search takes
+#define DMSH_GMEM_MAP_ENTRIES 4096       // the least count of entries, also the number of hint slots (GlobalToStorage.GmemHintLog2 = 12)
+#define DMSH_GMEM_MAP_ENTRY 32           // bytes of an entry: start, end (exclusive), delta (Metal GPU address minus guest address), then a lookup hint: two 32-bit words
+#define DMSH_GMEM_HINT_SHIFT 21         // one hint per 2 MiB guest address chunk (address >> 21), in the entry its low 12 bits index: the chunk's 32-bit number, then the index of the entry holding it whole (0: none)
+// The write log is a bitmap of the entries in the exact pool table bound to the shader. Bit i in word i / 32 records a store or atomic through entry i.
 #define DMSH_KIND_GMEM_LOG "gmem_log"    // that write log: the host gives each draw or dispatch its own, cleared (nvn_mtl.m gml_take)
 #define DMSH_GMEM_LOG_CB_OFFSET 1
 
