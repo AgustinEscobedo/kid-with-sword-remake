@@ -7969,6 +7969,26 @@ static uint64_t pool_entry(int samp, int dtt, int id_, int *gone, int *transient
     return tr;
 }
 static uint64_t g_stat_pool_patched, g_stat_pool_kept, g_stat_pool_nopatch[4];   // tables patched or kept on registrations and noted storage changes alone; why not: [0] too many changes or a sparse texture, [2] resized, [3] a change without a note
+// Pool table buffers are recycled. A registration that changes a table copies it into a new buffer (the submissions in flight keep reading the old one), and Ocarina of Time's
+// Kokiri Forest patched its texture table (about 33,000 IDs, 265 KB) 2-3 times a frame: 750 to 900 new buffers per 300 frames, each added to the residency set and removed from it once
+// retired. Every residency commit then carried those additions and removals into the kernel (IOGPUResourceGroupUpdateResources), from 0.3 to 27 s per 300 frames with the set at
+// 11 GB and the Mac short of memory: frames of 0.2-2 s of submit+present with no new pipeline. A retired table now stays resident and is reused for the next table of the same length
+// once the GPU has completed every submission that could read it (its fence); past PTB_KEEP of them the oldest goes the usual way (deferred release, out of the set)
+#define PTB_KEEP 64
+static struct { id<MTLBuffer> b; uint64_t fence; } g_ptb[PTB_KEEP]; static int g_nptb;
+static uint64_t g_stat_ptb_reused, g_stat_ptb_made;
+static id<MTLBuffer> ptb_get(NSUInteger len) {   // the encoding thread, as pool_gpu
+    uint64_t done = atomic_load(&g_done);
+    for (int i = 0; i < g_nptb; i++) if (g_ptb[i].fence <= done && g_ptb[i].b.length == len) {
+        id<MTLBuffer> b = g_ptb[i].b; g_ptb[i] = g_ptb[--g_nptb]; g_ptb[g_nptb].b = nil; g_stat_ptb_reused++; return b; }
+    id<MTLBuffer> b = [g_dev newBufferWithLength:len options:MTLResourceStorageModeShared]; res_add(b); g_stat_ptb_made++; return b;
+}
+static void ptb_retire(id<MTLBuffer> b) {
+    if (!b) return;
+    if (g_nptb == PTB_KEEP) { int o = 0; for (int i = 1; i < g_nptb; i++) if (g_ptb[i].fence < g_ptb[o].fence) o = i;   // the oldest leaves the set
+        defer_obj_release(g_ptb[o].b); g_ptb[o] = g_ptb[--g_nptb]; g_ptb[g_nptb].b = nil; }
+    g_ptb[g_nptb].b = b; g_ptb[g_nptb].fence = atomic_load(&g_fence) + 1; g_nptb++;
+}
 static uint64_t pool_gpu(int samp, int dtt, int dpf, int base, __unsafe_unretained id<MTLBuffer> *out) {
     uint64_t rg = atomic_load(&g_reg_gen), sg = samp ? 0 : atomic_load(&g_ser_gen);
     pool_snap *p = NULL, *free_ = NULL;
@@ -8005,12 +8025,12 @@ static uint64_t pool_gpu(int samp, int dtt, int dpf, int base, __unsafe_unretain
             int i = ids[k] - base; if (i < 0 || i >= nn) continue;
             uint64_t r = pool_entry(samp, dtt, ids[k], &gone, &transient); r = r ? r : dummy;
             if (r == (be ? be[i] : e[i])) continue;
-            if (!b) { b = [g_dev newBufferWithLength:p->buf.length options:MTLResourceStorageModeShared]; memcpy(b.contents, p->buf.contents, p->buf.length); be = (uint64_t *)((uint8_t *)b.contents + DMSH_POOL_HEAD); }
+            if (!b) { b = ptb_get(p->buf.length); memcpy(b.contents, p->buf.contents, p->buf.length); be = (uint64_t *)((uint8_t *)b.contents + DMSH_POOL_HEAD); }
             be[i] = r; nch++;
         }
         uint64_t sub = transient || p->sub ? g_sub_serial : 0;
         if (!b) { p->reg = rg; p->ser = sg; p->sub = sub; g_stat_pool_kept++; *out = p->buf; return p->gpu; }
-        res_add(b); defer_obj_release(p->buf);
+        ptb_retire(p->buf);
         *p = (pool_snap){b, b.gpuAddress, rg, sg, sub, samp, dtt, dpf, base};
         g_psnap_gen++; g_stat_pool_patched++;
         *out = b; return p->gpu;
@@ -8019,7 +8039,7 @@ static uint64_t pool_gpu(int samp, int dtt, int dpf, int base, __unsafe_unretain
     if (!p) p = free_ ? free_ : &g_psnap[g_psnap_next++ % POOL_SNAPS];
     uint64_t t0 = mach_absolute_time();
     int n = (samp ? g_nsreg : g_ntreg) - base; if (n < 1) n = 1;
-    id<MTLBuffer> b = [g_dev newBufferWithLength:DMSH_POOL_HEAD + 8 * (size_t)(n + 1) options:MTLResourceStorageModeShared];
+    id<MTLBuffer> b = ptb_get(DMSH_POOL_HEAD + 8 * (size_t)(n + 1));
     uint8_t *c = b.contents; *(uint32_t *)c = (uint32_t)n;
     uint64_t *e = (uint64_t *)(c + DMSH_POOL_HEAD), dummy = samp ? dummy_samp_rid() : (dummy_tex(dtt, dpf) ? g_dummy_tex_rid[dtt % DMY_NT][dpf & 3] : 0);
     int real = 0, gone = 0, transient = 0;
@@ -8028,8 +8048,7 @@ static uint64_t pool_gpu(int samp, int dtt, int dpf, int base, __unsafe_unretain
         e[i] = r ? r : dummy; real += r != 0;
     }
     e[n] = dummy;
-    res_add(b);
-    if (p->buf) defer_obj_release(p->buf);
+    ptb_retire(p->buf);   // resident since ptb_get
     // Retired registrations drop their views at submission end; their resource IDs cannot outlive that submission.
     *p = (pool_snap){b, b.gpuAddress, rg, sg, transient ? g_sub_serial : 0, samp, dtt, dpf, base};
     g_psnap_gen++;
@@ -8037,10 +8056,10 @@ static uint64_t pool_gpu(int samp, int dtt, int dpf, int base, __unsafe_unretain
     double ms = (double)(mach_absolute_time() - t0) * tb.numer / tb.denom / 1e6; g_stat_pool_ms += ms;
     static int gone_logged; int log_gone = gone && !gone_logged++;
     if (g_stat_pool_builds++ < 16 || g_stat_pool_builds % 1000 == 0 || log_gone)
-        MLOG("pool for handles traced to no slot: %s pool (texture type %d, class %d) at base %d, %d IDs of which %d hold %s and %d have no storage (memory pool finalized or gone), built in %.2f ms (%llu builds, %.0f ms in all; built because new %llu, registration %llu, storage %llu, retired IDs %llu; registrations taken alone: %llu tables patched, %llu kept; not: too many or sparse %llu, resized %llu, a change without a note %llu)", samp ? "sampler" : "texture",
+        MLOG("pool for handles traced to no slot: %s pool (texture type %d, class %d) at base %d, %d IDs of which %d hold %s and %d have no storage (memory pool finalized or gone), built in %.2f ms (%llu builds, %.0f ms in all; built because new %llu, registration %llu, storage %llu, retired IDs %llu; registrations taken alone: %llu tables patched, %llu kept; not: too many or sparse %llu, resized %llu, a change without a note %llu; table buffers reused %llu, made %llu)", samp ? "sampler" : "texture",
              samp ? -1 : dtt, samp ? -1 : dpf, base, n, real, samp ? "samplers" : "textures of the type", gone, ms, (unsigned long long)g_stat_pool_builds, g_stat_pool_ms,
              (unsigned long long)g_stat_pool_why[0], (unsigned long long)g_stat_pool_why[1], (unsigned long long)g_stat_pool_why[2], (unsigned long long)g_stat_pool_why[3], (unsigned long long)g_stat_pool_patched, (unsigned long long)g_stat_pool_kept,
-             (unsigned long long)g_stat_pool_nopatch[0], (unsigned long long)g_stat_pool_nopatch[2], (unsigned long long)g_stat_pool_nopatch[3]);
+             (unsigned long long)g_stat_pool_nopatch[0], (unsigned long long)g_stat_pool_nopatch[2], (unsigned long long)g_stat_pool_nopatch[3], (unsigned long long)g_stat_ptb_reused, (unsigned long long)g_stat_ptb_made);
     *out = b; return p->gpu;
 }
 static id<MTLBuffer> dummy_buf(void) { static id<MTLBuffer> b; if (!b) { b = [g_dev newBufferWithLength:64 << 10 options:MTLResourceStorageModeShared]; res_add(b); } return b; }

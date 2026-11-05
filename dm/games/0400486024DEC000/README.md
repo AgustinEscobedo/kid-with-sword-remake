@@ -41,6 +41,7 @@ For a run past the opening, copy the committed save folder to the new run's `DM_
 - Two agl_technique_pfx compute shaders (`1f78730053feb036`, `e172bd7ec218ab8e`) did not compile: [blocks nested past clang's bracket depth](../../../docs/reference/shaders.md#blocks-nested-past-clangs-bracket-depth), 257 levels from an unrolled 256-element walk (resolved by the compile flag; the nesting itself is open).
 - 34 shaders dropped their [float atomic adds](../../../docs/reference/shaders.md#float-add-atomics) (`RED.F32.FTZ.RN`, `Invalid reduction type: F32FtzRn`); they are a compare-and-swap loop now (lunks' #1359, resolved in the translator; it had left the outdoor scenes washed out; checked in the next run).
 - The first launch with shader libraries [looked hung before its first picture](../../../docs/reference/services.md#a-game-paused-out-of-focus-looks-hung-before-its-first-picture): the window had lost key status while the progress screen compiled the 11 NDVE pipelines (72 s on a cold Metal cache), and the game, in focus handling mode 2, pauses out of focus. It went on at `oe focus state → 1` (resolved: the Mac window now says the game is paused).
+- The CPU-side freezes in Kokiri Forest (frames of 0.2 to 2 s of `submit+present` with no new pipeline) were [patched pool tables churning the residency set](../../../docs/reference/frame-rate.md#patched-pool-tables-churn-the-residency-set): 600 to 900 table buffers added and removed per 300 frames (resolved: retired tables are reused).
 
 ## Open
 

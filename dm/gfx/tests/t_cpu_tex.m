@@ -142,6 +142,32 @@ static void finalized_bindless_pool(void) {
     h_nvnMemoryPoolFinalize(&pool);
     defer_drain(); munmap(mem, len);
 }
+// Pool table buffers (ptb_get / ptb_retire): a retired table is reused only after the GPU has completed its fence, only at the same length, stays resident while kept,
+// and past PTB_KEEP the oldest goes to the deferred release (Ocarina of Time's Kokiri Forest made 2-3 new 265 KB tables a frame, each added to and removed from the residency set)
+static int resident(id o) { pthread_mutex_lock(&g_res_mu); int r = [g_res_objects containsObject:o]; pthread_mutex_unlock(&g_res_mu); return r; }
+static void ptb_recycle(void) {
+    uint64_t fence0 = atomic_load(&g_fence), done0 = atomic_load(&g_done), made0 = g_stat_ptb_made, reused0 = g_stat_ptb_reused;
+    atomic_store(&g_done, fence0);   // everything before is complete
+    id<MTLBuffer> a = ptb_get(4096);
+    CHECK(a && a.length == 4096 && resident(a) && g_stat_ptb_made == made0 + 1, "a new table buffer is made resident");
+    ptb_retire(a);
+    atomic_store(&g_fence, fence0 + 1);   // the submission that may read it is committed, not complete
+    id<MTLBuffer> b = ptb_get(4096);
+    CHECK(b && b != a && g_stat_ptb_reused == reused0, "a table the GPU may still read is not reused");
+    atomic_store(&g_done, fence0 + 1);
+    id<MTLBuffer> c = ptb_get(8192);
+    CHECK(c != a && c.length == 8192, "a retired table is not reused at another length");
+    id<MTLBuffer> d = ptb_get(4096);
+    CHECK(d == a && resident(d) && g_stat_ptb_reused == reused0 + 1, "once its fence completes the retired table is reused, still resident");
+    ptb_retire(b); ptb_retire(c); ptb_retire(d);
+    size_t deferred0; pthread_mutex_lock(&g_deferred_mu); deferred0 = g_deferred.count; pthread_mutex_unlock(&g_deferred_mu);
+    int kept = g_nptb;
+    for (int i = 0; i < PTB_KEEP; i++) { id<MTLBuffer> e = [g_dev newBufferWithLength:1024 options:MTLResourceStorageModeShared]; res_add(e); ptb_retire(e); }
+    size_t deferred1; pthread_mutex_lock(&g_deferred_mu); deferred1 = g_deferred.count; pthread_mutex_unlock(&g_deferred_mu);
+    CHECK(g_nptb == PTB_KEEP && deferred1 == deferred0 + (size_t)kept, "past PTB_KEEP the oldest retired tables go to the deferred release");
+    while (g_nptb) { defer_obj_release(g_ptb[--g_nptb].b); g_ptb[g_nptb].b = nil; }
+    atomic_store(&g_fence, fence0); atomic_store(&g_done, done0);
+}
 int main(int argc, const char **argv) { @autoreleasepool {
     enum { N = 6442, BASE = 1000 };
     static tex_t t[N];
@@ -167,6 +193,6 @@ int main(int argc, const char **argv) { @autoreleasepool {
     CHECK(mtl_cpu_tex_count() == N - 2, "a texture with no serial is not recorded");
     for (int i=0;i<N;i++) mtl_tex_release(&t[i]);
     retired_classification(); descriptor_replacement();
-    if (argc > 1 && !strcmp(argv[1], "--metal")) { mtl_init(); finalized_upload(0); finalized_upload(1); finalized_bindless_pool(); }
+    if (argc > 1 && !strcmp(argv[1], "--metal")) { mtl_init(); finalized_upload(0); finalized_upload(1); finalized_bindless_pool(); ptb_recycle(); }
     printf("t_cpu_tex: %d checks, %d failed\n", checks, failed); return failed != 0;
 } }
