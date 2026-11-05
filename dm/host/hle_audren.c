@@ -14,6 +14,7 @@
 // Command list format (SDK 16): header +0x04 command count, +0x08 mix buffer address, +0x10 buffer count, +0x14 samples per frame, +0x18 sample rate, commands from +0x20;
 //   each command +0x00 magic 0xcafebabe, +0x04 enabled, +0x05 command ID (DeviceSink = 0x13), +0x06 size; DeviceSink +0x128 upsampler buffer, +0x130 input count, +0x134 input indices (s16).
 #include "hle.h"
+__attribute__((weak)) void dm_thread_dump(const char *why) { (void)why; }   // default for unit tests that link this file alone; hle_thread.c's dumps every guest thread (DM_AUDREN_TRACE)
 #include <math.h>
 #include <stdatomic.h>
 #include <time.h>
@@ -415,7 +416,7 @@ static int capture(ar_t *a, const uint8_t *cl, size_t len, int16_t *dst) {
             {   // DM_AUDREN_TRACE: each stretch of digital silence of 200 ms or more, when the sound comes back (render thread only)
                 static int tr = -1; if (tr < 0) tr = getenv("DM_AUDREN_TRACE") != NULL;
                 if (tr) { if (!loud) { uint64_t t = now_ns(); if (!a->quiet_ns) a->quiet_ns = t;
-                                       else if (t - a->quiet_ns > 2000000000ull && !a->quiet_dumped) { static int dumps; a->quiet_dumped = 1; void dm_thread_dump(const char *why);
+                                       else if (t - a->quiet_ns > 2000000000ull && !a->quiet_dumped) { static int dumps; a->quiet_dumped = 1;
                                                                                                          if (dumps++ < 4) dm_thread_dump("the audio renderer has rendered silence for 2 s (DM_AUDREN_TRACE)"); } }
                           else if (a->quiet_ns) { uint64_t t = now_ns(); if (t - a->quiet_ns >= 200000000ull) LOG("audren: renderer %d silent from t=%.3f s for %.3f s", ar_index(a), a->quiet_ns / 1e9, (t - a->quiet_ns) / 1e9); a->quiet_ns = 0; a->quiet_dumped = 0; } }
             }
