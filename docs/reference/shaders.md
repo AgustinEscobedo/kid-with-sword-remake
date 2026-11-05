@@ -1165,10 +1165,10 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
 
 - **Symptom:** `fatal error: bracket nesting level exceeded maximum of 256` from the Metal compile in the shader build; the shader is left out.
 - **Cause:** the translator's structurizer opens a block for every forward branch to a common exit, so a guest loop that the game's compiler unrolled with an early exit after each step nests one block a step. Ocarina of Time's agl_technique_pfx compute shaders walk a 256-element array, each step taking `min(left, a[i])` from it and leaving once nothing is left: 257 levels, past clang's default of 256.
-- **Fix:** the chain's Metal commands pass `-fbracket-depth=1024` (`dmsh_build.py` `MAC_METAL`, `ios_metal.py` `METAL`). Both shaders compile on the Mac and for iOS (2.4 s and 0.6 s).
+- **Fix:** a source nested past the limit compiles with `-fbracket-depth=1024` (`ios_metal.metal_command`, used by `dmsh_build.py` `mac_compile` and `ios_metal.compile`). The build counts the deepest nesting of `(`, `[` and `{` together in the MSL (2 ms a shader), which is at least clang's count of any one kind. Only such a source gets the flag: it only raises the limit, so the output is what the plain compile would give, and the compile records, which key every shader's Metal compile cache, stay as they were. Turning the flag on for every compile had changed those records and sent all 42,851 of Ocarina of Time's shaders past that cache. Its other shaders nest 35 deep at most. Both shaders compile on the Mac and for iOS (2.4 s and 0.6 s).
 - **Open:** the nesting itself. A structurizer that leaves such a chain through one exit (a `break` out of a single loop) would not nest, and would not depend on the limit; it changes every shader's control flow, so it waits for a regression run across games.
 - **Found on:** [The Legend of Zelda: Ocarina of Time](../../dm/games/0400486024DEC000/README.md): `1f78730053feb036` and `e172bd7ec218ab8e` (`agl_technique_pfx.sharcb`).
-- **Check:** `python3 dm/gfx/tests/test_dmsh_bracket_depth.py` (a 300-deep walk compiles with both commands and fails without the flag).
+- **Check:** `python3 dm/gfx/tests/test_dmsh_bracket_depth.py` (only a source past the limit gets the flag, the records do not name it, a 300-deep walk compiles with both commands and fails without the flag).
 
 ### Comparisons with .FTZ
 
