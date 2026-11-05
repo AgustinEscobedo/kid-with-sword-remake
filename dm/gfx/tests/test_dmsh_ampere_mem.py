@@ -186,31 +186,6 @@ class AtomgCas(Translated):
         self.assertIn('ATOMG.CAS size U64', r.stdout + r.stderr)
 
 
-class RedF32(Translated):
-    # RED.E.ADD.F32.FTZ.RN [R2.64], R5 (0x98e, type 3 at 73..76, operation 0 at 87..90): Ocarina of Time has it in 34 shaders, which dropped it ("Invalid reduction type: F32FtzRn")
-    MOVS = [(0x000fe20000000f00, 0x0100000000027a02), (0x000fe20000000f00, 0x0100010000037a02), (0x000fe20000000f00, 0x0100020000057a02)]   # R2 = c4[0], R3 = c4[4], R5 = c4[8]
-    RED = (0x000fe2000c00063f, 0x000000050200798e)
-
-    def red_msl(self, red):
-        with tempfile.TemporaryDirectory(prefix='red_f32_') as d:
-            (Path(d) / 'k.bin').write_bytes(b''.join(inst(*c) for c in (*self.MOVS, red, EXIT)))
-            (Path(d) / 'jobs.json').write_text(json.dumps([dict(key='k', stage='cs', arch='sm86', code=str(Path(d) / 'k.bin'), tex={}, img={}, attr={}, fout={}, local=[32, 1, 1], nvn2_cs=[0, 0, 3, 0x40, 0])]))
-            r = subprocess.run([os.environ['DMSH_TEST_XLATE'], str(Path(d) / 'jobs.json'), d], capture_output=True, text=True)
-            notes = (Path(d) / 'k.res.json').read_text() if (Path(d) / 'k.res.json').exists() else ''
-        return r.stdout + r.stderr + notes, self.translate(b''.join(inst(*c) for c in (*self.MOVS, red, EXIT)))
-
-    def test_an_add_by_compare_and_swap(self):
-        log, msl = self.red_msl(self.RED)
-        self.assertNotIn('Invalid reduction type', log)
-        self.assertIn('atomic_compare_exchange', msl)
-        self.assertRegex(msl, r'do\s*\{|for \(;;\)|while \(', 'again from a new load where another thread changed the word')
-        self.assertRegex(msl, r'1\.1754943\d*e-38', 'denormals flushed (FTZ)')
-
-    def test_f16x2_is_still_dropped(self):   # type 4: not implemented, reported
-        log, _ = self.red_msl(((self.RED[0] & ~(7 << 9)) | 4 << 9, self.RED[1]))
-        self.assertIn('Invalid reduction type: F16x2FtzRn', log)
-
-
 class Bmsk(Translated):
     """BMSK (Star Fox's 58046f286de779e1 +0x5a0, on registers the atomic reads): a mask of b bits from bit a. The form with c[4] sources keeps it from folding"""
     MOVS = inst(0x000fe20000000f00, 0x0100000000037a02) + inst(0x000fe20000000f00, 0x0100010000047a02)   # R3 = c4[0], R4 = c4[4]
@@ -369,6 +344,28 @@ def mov(rd, value):   # MOV Rd, imm32: values the tests can see in the output
 
 def sts(offset, rb):   # STS.U32 [RZ + offset], Rb: keeps its result
     return inst(0x000fe80000000800, offset << 40 | rb << 32 | 0xff << 24 | 0x7388)
+
+
+class RedF32(Translated):
+    """RED.E.ADD.F32.FTZ.RN (0x98e, type 3 at 73..76), in Ocarina of Time's encoding (agl's sky_analyze 21d9f83e6027c565 at +0xa70, there on UR4 and R9): the IR has no float atomic, so
+    the add retries a compare-and-swap of the word. The translator used to log `Invalid reduction type: F32FtzRn` and drop the instruction"""
+    ULDC = (0x000fe40000000a00, 0x0000100000067ab9)   # ULDC.64 UR6, c[0][0x40]: storage slot 0 with the c0 layout below (3 uniform buffers, 1 storage buffer)
+    RED = (0x000fe8000c10e706, 0x00000005ff00798e)    # RED.E.ADD.F32.FTZ.RN [UR6], R5: at the start of storage slot 0
+
+    def msl(self, red=None):
+        code = mov(5, 0x3fc00000) + inst(*self.ULDC) + inst(*(red or self.RED)) + inst(*EXIT)
+        return self.translate(code, nvn2_cs=[3, 1, 0, 0x50, 0])
+
+    def test_the_add_is_kept(self):
+        msl = self.msl()
+        self.assertRegex(msl, r'atomic_compare_exchange_weak_explicit\(\(device atomic_uint\*\)&\(\*spvDescriptorSet0\.cp_s0\)\._m0\[0\]')
+        self.assertIn('1.5', msl)   # the value, as a float operand of the add
+
+    def test_it_retries_until_the_word_held_what_it_read(self):
+        self.assertRegex(self.msl(), r'\bdo\s*\{[^}]*\}\s*while|for \(;;\)|while \(')
+
+    def test_the_sum_flushes_denormals(self):
+        self.assertIn('1.1754943508222875', self.msl())
 
 
 class Shared(Translated):

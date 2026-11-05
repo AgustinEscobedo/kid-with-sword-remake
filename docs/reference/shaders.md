@@ -1153,14 +1153,6 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
 - **Found on:** [The Legend of Zelda: Ocarina of Time](../../dm/games/0400486024DEC000/README.md): six compute shaders of `FoliageShader.sharcb` (`13002657609092b4` and five others) claim a hash slot with `CAS(slot, 0, index + 1)` and take the old value's index when the slot was taken (0x8c00 in `13002657609092b4`). All six translate now.
 - **Check:** `DMSH_TEST_XLATE=<translator> python3 dm/gfx/tests/test_dmsh_ampere_mem.py` (`AtomgCas`).
 
-### A float atomic add (RED.F32.FTZ.RN)
-
-- **Symptom:** `Invalid reduction type: F32FtzRn` among the translator's notes; the shader builds but its float atomic adds do nothing.
-- **Cause:** the IR has integer atomics only, and the shared emitter (`InstEmitMemory.EmitAtomicOp`, which Ampere's RED and ATOM use) logged and dropped an add of type F32.FTZ.RN.
-- **Fix:** `EmitAtomicAddF32FtzRn`: a compare-and-swap loop on the word. It loads the word, adds with the denormal operands and result flushed to zero (FTZ) and the sum rounded to the nearest (RN), and writes it only where the word is still the one loaded, else starts again from a new load. Every value in the loop is defined once and none is carried, so the loop needs no phi; the load and the compare-and-swap go through the global-to-storage pass (a storage buffer, or the raw pool table) as other accesses do. ATOM returns the word before the add. F16x2 is still dropped and reported.
-- **Found on:** [The Legend of Zelda: Ocarina of Time](../../dm/games/0400486024DEC000/README.md): 34 shaders.
-- **Check:** `DMSH_TEST_XLATE=<translator> python3 dm/gfx/tests/test_dmsh_ampere_mem.py` (`RedF32`).
-
 ### Blocks nested past clang's bracket depth
 
 - **Symptom:** `fatal error: bracket nesting level exceeded maximum of 256` from the Metal compile in the shader build; the shader is left out.
@@ -1178,6 +1170,14 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
 - **Limit:** only the comparisons. The compilers set .FTZ on nearly every float instruction of every shader, so it is in effect a mode of the whole shader, and Metal has none (`MTLCompileOptions` has math modes, no denormal control). Flushing the arithmetic would be about 3.3 million more sites in Mario Kart World, so its FADD, FMUL and FFMA keep denormals. Four denormal weights can still add up to a normal sum, which NVIDIA sees as zero; it stays finite, so it makes no NaN.
 - **Found on:** [Mario Kart World](../../dm/games/0400C3F00006E000/README.md): its deferred lighting `635061c90d75a8d1` normalises four depth-weighted half-resolution samples by `1 / sum` only where `FSETP.NEU.FTZ` says the sum is not zero. No Switch 1 game has shown the symptom; Maxwell's comparisons follow for the same semantics (the flag is on all of them in the 8 Switch 1 games counted).
 - **Check:** `DMSH_TEST_XLATE=<translator> python3 dm/gfx/tests/test_dmsh_ampere_alu.py` (`CompareFtz`, on the game's encoding) and `test_dmsh_maxwell_ftz.py`.
+
+### Float add atomics
+
+- **Symptom:** `Invalid reduction type: F32FtzRn` in the shader build's translator notes. In the game, a value that shaders sum on the GPU stays 0: Ocarina of Time's outdoor scenes washed out to near white, with fog over everything and a huge glare at a doorway, while interiors looked right.
+- **Cause:** `EmitAtomicOp` handled integer sizes only and logged any other, dropping the instruction: RED and ATOMG `.ADD.F32.FTZ.RN` left no trace in the shader. The IR has no float atomic.
+- **Fix:** general: `EmitAtomicAddF32` in `InstEmitMemory.cs` adds through a compare-and-swap loop of the word, flushing denormals as `.FTZ` does. `GlobalToStorage` lowers the load and the exchange as any others, to a storage buffer or through the pool table.
+- **Found on:** Ocarina of Time (Switch 2, `0400486024DEC000`, PR #1299): 416 instructions in 34 shaders. 12 are agl's analysis compute shaders (`sky_analyze`, `probe_analyze`, `cube_map_probe_analyze`, `shadow_analyze`, `inner_mask_analyze`, `local_depth_shadow_analyze`), dispatched every frame outdoors; the other 22 are `pick_final_color` and `var3` of two material shaders. Only those 12 rebuilt on the old app brought the colours back at one spot; not confirmed in a full build.
+- **Check:** `RedF32` in `dm/gfx/tests/test_dmsh_ampere_mem.py`, on the game's encoding.
 
 ### Barrier moves around warp shuffles
 
