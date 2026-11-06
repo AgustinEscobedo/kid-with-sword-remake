@@ -19,6 +19,9 @@ DM_ROOT="$WORK" DM_ROMFS="$DUMP/base/romfs" DM_SAVE="$WORK/run/save" \
   DM_WINDOW=1 DM_METAL_HUD=1 DM_FOCUS_KEEP=1 DM_AUDIO=1 \
   dm/host/dmhost "$WORK/patched_v0"
 ```
+The NUP at hand has three damaged files: `Tex/CmnTex_Map_Soil_FairyFountain_Floor_D_Nrm.bntx.zs`, `Tex/Rock_WaterTemple_Gate_M_01_Nrm.bntx.zs` and `Tex/RBake_Scene_GanonStage_G_2_1_d0_t0.bntx.zs` begin with 12 KB of zeros (the container's SHA-256 of them matches, so they were so when it was packed; whether a retail copy has them is not known; the other 102,182 `.zs` files begin with a zstd frame). The first kept the Kokiri Forest fairy fountain model from ever loading: the `OptimizeChangeBanc` thread asked for it ~22 times a second all session (one core) and a `ParallelDecompThread` decompressed its 2.4 MB each time (~0.75 core). The profile key `romfs_substitute` serves them as the game's 1x1 flat normal map (the Ganon stage bake as its neighbour cell's): Mac CPU 412% → 180%, frame p95 21.9 → 18.8 ms ([A `.zs` file that is not a zstd stream](../../../docs/reference/packing.md#a-zs-file-that-is-not-a-zstd-stream)).
+
+## Shaders
 
 `DM_FOCUS_KEEP=1` lets the title keep playing while another app has focus. The profile prewarms the 11 NDVE compute pipelines used by the title. On the Apple M5 that took 17.7 s on a cold run, with a progress screen, and 7 ms with the archive warm. Compiling the same pipelines during the first submission had blocked the first movie frame for tens of seconds. The larger scene shader set also triggers a separate graphics-pipeline prebuild. On the first run with that set, the startup screen took 86.9 s to hand out all pairs, and the remaining workers finished after 110.6 s total.
 
