@@ -443,3 +443,27 @@ The guest address space, heaps, pools, virtual address memory and the allocators
 - **Found on:** The Legend of Zelda: Ocarina of Time (Switch 2, 0400486024DEC000; its profile is pull request #1299): about 2.3 GB given back within ten seconds of gameplay with `DM_TEX_RELEASE=2`, which with the other memory changes of the same session let walking runs survive on a 24 GB Mac. The donor copy fixed Link's hat embroidery, whose two BC4 masks are registered again at gameplay entry over the storage of boot-time textures (8 or more copies at entry, the masks' non-zero bytes as with the release off).
 - **Check:** `make -C dm/gfx/tests GAME=<id> check_t_dirty_discard`.
 
+### Shaders report which textures they read through a pool
+
+- **Symptom:** a game whose shaders read texture handles from memory wires far past the working set while a scene loads, with `Insufficient Memory` errors or a panic, and stutters when new textures stream in. With a limit on how many it makes, surfaces in shadow go near black instead.
+- **Cause:** handles read from game memory may name any registered texture, and which ones is known only on the GPU, so the pool walk (`pool_gpu`) had to make all of them. On a console that costs nothing: a handle is a number and the data is already in the pool. Here each is a Metal texture beside the pool's copy. Ocarina of Time registers about 33,000 IDs and reads about 300 of them, about 1 GB. The rest were made in case, or, under a budget, exactly the large ones the shaders read were left out, and read the dummy for good. Each upload also reads pages the system may have swapped out and wires them: one 300-frame window spent 8.6 s in residency commits.
+- **Fix:** general, in the chain and the host. A read of a texture pool sets the ID's bit in a bitmap (`dmsh_build.py` `pool_arrays`, `dm_pool_mark`; its address in the table's head, `DMSH_POOL_HEAD`). The word is read first, so nearly every read costs a load, not an atomic. The host folds the bitmap at each submission (`pool_seen_scan`) and makes those textures whatever the budget, up to 128 MB a frame. It also puts them into the existing tables in place, as a table can stand for a submission once walks have taken their 2 ms: dummy to texture is safe for a draw already encoded. Registering another texture at an ID clears its bit. A render target no pass has written is not made for a read: it holds nothing, and a pass makes it when it renders (`pool_unwritten_target`). A walk still makes the smallest textures up front, 32 MB a frame up to a twentieth of the working set, as a pass that runs once has no second frame to find its texture in. `t_pool_chunks` checks this.
+- **Result on Ocarina of Time,** a 16 GB Mac, the village: Metal textures and targets 5.5 → 3.9 GB, physical footprint 14.4 → 13.0 GB, p95 from 42–79 ms (with long frames of 300 ms and more) to 28–32 ms, and the house and bark in shadow lit as on the console.
+- **Cost:** the write makes each such fragment shader one with side effects, which may lose early depth tests. Not measured apart from the other changes: without the bitmap the same textures are missing, so the frames are not comparable.
+- **Not done:** the guest's copy of a texture stays. Only 154 MB of it lies in wired pools on Ocarina of Time, and the system can swap the rest, so releasing it would save swap and no RAM. It would also corrupt a later texture over the same bytes under another description, as those bytes would be gone.
+- **Reading the numbers:** `currentAllocatedSize` ("GPU allocated") read 16 GB on this game while `vmmap` showed 3.9 GB of Metal textures and targets. Use `vmmap -summary` (`owned unmapped (graphics)`, `IOAccelerator (graphics)`) for what memory holds.
+- **Found on:** [The Legend of Zelda: Ocarina of Time](../../dm/games/0400486024DEC000/README.md).
+
+### Pools that hold shader code made resident to key the shaders
+
+- **Symptom:** the residency set holds every memory pool a program's shader code lies in: in Ocarina of Time, 222 pools and 334 MB added through `mtl_addr` as the game sets its programs (the residency line's additions by source line).
+- **Cause:** `keys_hash` (`hle_nvn.c`) checks that a shader's code is mapped in a pool before it hashes it, and asked `mtl_addr`, which also makes the pool resident. The GPU never reads that code: the shaders run translated.
+- **Fix:** general (`nvn_mtl.m` `mtl_pool_holds`): the same pool lookup as `mtl_addr`, without the residency. A pool the GPU does read through a binding or an address is made resident there, as before. `t_pool_holds` checks it.
+- **Found on:** [The Legend of Zelda: Ocarina of Time](../../dm/games/0400486024DEC000/README.md), whose GPU working set is over an iPad's 8 GB.
+
+### Repeated GPU out-of-memory failures end the game
+
+- **Symptom:** the Mac grows unresponsive for hours, then panics, with the host still submitting work that fails.
+- **Cause:** a command buffer that fails with `Insufficient Memory` frees nothing, and the game submits the next one.
+- **Fix:** general (`nvn_mtl.m` `res_top_once`): 32 such failures within 60 s end the process with a red line, as the session cannot recover and the machine may not either.
+- **Found on:** [The Legend of Zelda: Ocarina of Time](../../dm/games/0400486024DEC000/README.md).

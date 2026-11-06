@@ -24,6 +24,7 @@ void mtl_pool_gpu_written(const void *pool);   // the GPU writes this pool (with
 void mtl_tex_gpu_written(const void *tex);   // the GPU writes this texture (a tex_t): its pool, and with DM_NVN_GPUW_RANGE (default) its storage range; uncompressed textures over GPU-written storage are no longer taken from it (tex_cpu_content)
 int mtl_addr(uint64_t addr, uint64_t len, void **buf, uint64_t *off);   // 1 on success; buf is a (__bridge) id<MTLBuffer>
 void mtl_pool_buffer_addr(const void *mem, uint64_t size);   // the game took a buffer address in [mem, mem+size): raw global memory may reach it (gmem_map_gpu)
+int mtl_pool_holds(uint64_t addr, uint64_t len);   // 1 when the range lies in one memory pool (as mtl_addr finds it); does not make the pool resident
 
 typedef struct {
     uint32_t pso, cps, shaders, dss;
