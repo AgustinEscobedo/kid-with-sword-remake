@@ -187,6 +187,7 @@ static int img_path(const char *p, int *mi, int64_t *k) {
 }
 // DM_ROMFS_OVERLAY's folders, each preceded by its subfolder for the console mode (docked/ or handheld/) when it has one: game file replacements that differ by mode
 // (Ocarina of Time's resolution table: 1280x720 handheld, 1920x1080 docked). Taken when the RomFS mounts, so a later change of the operation mode does not swap files the game already read
+__attribute__((weak)) int dm_opmode(void) { return 0; }   // hle_oe.c's (the console mode); the file-system tests link no hle_oe.c: handheld
 static void rom_overlay_set(char *dst, size_t n, const char *env) {
     char *roots = strdup(env); if (!roots) die("rom overlay allocation failed");
     const char *mode = dm_opmode() == 1 ? "docked" : "handheld"; char *save = NULL; dst[0] = 0;
