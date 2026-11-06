@@ -510,7 +510,7 @@ void mtl_init(void) {
     g_nvn_deswz_gpu = nvn_deswz_gpu_init(g_dev) == 0;
     dm_res_report_register(mtl_res_counts);
     if (!g_nvn_deswz_gpu) MLOG("[RED] GPU deswizzle init failed; swizzled textures fall back to the CPU");
-    MLOG("Metal device %s", g_dev.name.UTF8String);
+    MLOG("Metal device %s, GPU architecture %s (the name of its offline pipeline archive: --gpu / pso_gpu)", g_dev.name.UTF8String, [(id)g_dev respondsToSelector:@selector(architecture)] ? g_dev.architecture.name.UTF8String : "unknown");
     udc_selftest();
 }
 
