@@ -33,6 +33,7 @@ Every iPhone build is numbered; its file is `OcarinaOfTime-V<n>.ipa` (the first 
 | V2 | `OcarinaOfTime-split.ipa`, 2.7 GB, game files copied once | Split IPA; the encode-thread crash after the opening cutscene fixed | Mac: the crash reproduced and fixed. iPhone 18 Pro: plays past the cutscene, but about 38 fps after it, with 0.2-1.3 s freezes when new shader pipelines compile |
 | V3 | `OcarinaOfTime-V3.ipa`, 3.0 GB, split | Metal 4 pipelines on the iPhone (profile key `pso_mtl4 on`): the pipeline prebuild on the first start and hybrid pipelines, so draws no longer wait for pipeline compiles | iPhone 18 Pro: fewer stutters, up to about 40 fps. The first start prepares about 30,500 pipelines once |
 | V4 | `OcarinaOfTime-V4.ipa`, split | A **Frame rate** setting (30 / 60) in the launcher, through a frame step patch of the game's own frame-rate controller: 30 fps holds every frame 33.3 ms at full game speed. The touch gamepad starts in the 3D layout, whose right stick turns the camera | Mac: 30 and 60 both run, no crash, 30 fps frame time p50 33.3 / p95 34-36 ms. Not yet on the iPhone |
+| V5 | `OcarinaOfTime-V5.ipa`, 3.0 GB, split | The launcher's **Console mode** picks the resolution: handheld 1280 × 720, docked 1951 × 1098 (the game's nearest size to 1080p; see [Resolution](#resolution)). The black world with the MetalFX upscaler at other resolutions fixed | Mac: both modes render at those sizes, no crash. Not yet on the iPhone |
 
 ## What you need
 
@@ -75,6 +76,7 @@ Every iPhone build is numbered; its file is `OcarinaOfTime-V<n>.ipa` (the first 
 | Game file replacements in the Mac app | `dm/mac/pack_app.py` (`--romfs-overlay`), `dm/mac/launcher.c`, `scripts/build_ipa_from_nsp.py` | The Mac app carries `Resources/romfs_overlay` (from `romfs_overlay_mac` beside the RomFS, else `romfs_overlay`); the launcher sets `DM_ROMFS_OVERLAY` |
 | Black world with the MetalFX upscaler at the game's own resolution fixed | `dm/gfx/nvn/nvn_mtl.m` (`dispatch`, the upscaler chain) | `DM_UPSCALER=metalfx` skips the first stages of the game's upscale chain and draws its last stage (the profile's `upscaler_chain`) with MetalFX. At the game's own dynamic resolution (up to 1440 × 810, no 720p file) the chain ends at other stages (`fa3033d05c0a41d6`, `b106afba1a18faa9`), which read the skipped stages' outputs: the 3D world was black under the HUD. Such a chain now falls back to the game's own chain from the next frame on. Reported from another M5 Mac's app built from V3 |
 | 30 / 60 fps frame step | `dm/games/0400486024DEC000/patches.py` (`FRAME_STEP`), `game.tsv` (`fps_target 60`) | The game's frame-rate controller picks its interval and fps from the host's step, so the launcher's Frame rate setting works and 30 fps runs at full speed. See [Frame rate](#frame-rate) |
+| Resolution by console mode | `dm/host/hle_fs.c` (`rom_overlay_set`) | An overlay folder's `handheld/` or `docked/` subfolder comes first for the console mode at start, so the launcher's Console mode switches between 720p and 1080p. Added in V5 |
 | Resolution tool | `scripts/oot_res_overlay.py` | Writes the modified resolution table (below) |
 | iPhone crash after the opening cutscene fixed | `dm/gfx/nvn/nvn_rec.h` | The iPhone records Metal commands on a separate thread (`DM_NVN_ENC_THREAD`, on by default on iOS); its recorder had no stand-in for `drawMeshThreadgroupsWithIndirectBuffer:…`, the indirect task / mesh draw the game first issues after the opening cutscene, so the app stopped (`FATAL deferred encoding`). The draw is now recorded (`RO_R_MESH_IND`) and replayed |
 | iOS SDK build fix | `dm/host/hle_svc.c` | `#include <mach/mach_vm.h>` removed: the iOS SDK rejects it (`vm_remap` comes from `mach/mach.h`) |
@@ -104,19 +106,23 @@ Every iPhone build is numbered; its file is `OcarinaOfTime-V<n>.ipa` (the first 
 
 The render resolution comes from the game's own files: `Pack/Bootup.Nin_Ounce_NVN2.pack.zs` → `System/GameGraphics/ModelSceneExtensionParam/Default.game__gfx__ModelSceneExtensionParam.bgyml`. Its `ResolutionParam` (a hash-keyed BYML dictionary, node type `0x20`) has one base resolution per mode, with a final image of the same size:
 
-| Mode | Base resolution |
-|---|---|
-| Handheld | 1920 × 1080 |
-| Docked | 2560 × 1440 |
+| Mode | Base resolution in the table | What the game shows |
+|---|---|---|
+| Handheld | 1920 × 1080 | 1920 × 1080 |
+| Docked | 2560 × 1440 | 2048 × 1152 (a crop of a 2560 × 1440 swap chain) |
 
-`DynamicResolutionParam` has the dynamic-resolution levels that multiply the base: `ResolutionReduceScale` 0.75, 0.711, 0.667, 0.622, 0.583, 0.533, 0.5, 0.445, 0.372, 0.333, with `LoadThreshold` 95. So the game, unchanged, renders at most 1440 × 810 handheld and 1920 × 1080 docked, and steps down under GPU load.
+`DynamicResolutionParam` has the dynamic-resolution levels that multiply the base: `ResolutionReduceScale` 0.75, 0.711, 0.667, 0.622, 0.583, 0.533, 0.5, 0.445, 0.372, 0.333, with `LoadThreshold` 95. So the game, unchanged, renders at most 1440 × 810 handheld and 1536 × 864 docked, and steps down under GPU load. Docked sizes come in steps of about 45 pixels, measured on the Mac: scale 0.75 → 1536 × 864, 0.90 → 1862 × 1048, 0.92 → 1906 × 1072, 0.9375 → 1951 × 1098 (0.9254 still gives 1906 × 1072), so 1920 × 1080 itself is not one of them.
 
 `scripts/oot_res_overlay.py` writes a copy of that pack with new levels; the RomFS image is not changed, the copy is served over it (`DM_ROMFS_OVERLAY`):
 
-| Build | Command | Handheld | Docked |
-|---|---|---|---|
-| iPhone (fixed 720p, never lower) | `oot_res_overlay.py RomFS.img overlay_720 0.66667 - flat` | 1280 × 720 | 1707 × 960 |
-| Mac app (native base, each mode) | `oot_res_overlay.py RomFS.img overlay_native 1.0 - flat` | 1920 × 1080 | 2560 × 1440 |
+Each overlay folder may hold a `handheld/` and a `docked/` subfolder; the host serves the one for the console mode at start (`hle_fs.c` `rom_overlay_set`, `DM_OPMODE`, the launcher's **Console mode**) before the folder itself. Since V5 both the iPhone and the Mac app use:
+
+| Mode | Command | Renders |
+|---|---|---|
+| Handheld | `oot_res_overlay.py RomFS.img romfs_overlay/handheld 0.666667 - flat` | 1280 × 720 |
+| Docked | `oot_res_overlay.py RomFS.img romfs_overlay/docked 0.9375 - flat` | 1951 × 1098 (the nearest size at or above 1080 lines) |
+
+On the MacBook Air M5 docked cost about the same GPU time as handheld 720p in the same session (16.5-20 ms against 19 ms): the game draws some things more cheaply docked, its shadow maps for example (1520 × 1520).
 
 `flat` sets every level to the same scale, so the resolution never changes and the game never makes a new set of render targets.
 
@@ -165,11 +171,11 @@ cd "$B/run" && DM_ROOT="$B" DM_ROMFS="$B/extract/v131072/RomFS.img" DM_SAVE="$B/
 
 ```sh
 V="$B/extract/v131072"
-venv/bin/python scripts/oot_res_overlay.py "$V/RomFS.img" "$V/romfs_overlay" 0.66667 - flat       # the iPhone's 720p
-venv/bin/python scripts/oot_res_overlay.py "$V/RomFS.img" "$V/romfs_overlay_mac" 1.0 - flat      # the Mac app's native resolution
+venv/bin/python scripts/oot_res_overlay.py "$V/RomFS.img" "$V/romfs_overlay/handheld" 0.666667 - flat   # 1280x720
+venv/bin/python scripts/oot_res_overlay.py "$V/RomFS.img" "$V/romfs_overlay/docked" 0.9375 - flat      # 1951x1098
 ```
 
-`build_ipa.sh` packs `romfs_overlay` into the IPA; the Mac app takes `romfs_overlay_mac` when it exists.
+`build_ipa.sh` packs `romfs_overlay` into the IPA, and the Mac app takes it too (or `romfs_overlay_mac` beside it, when that exists).
 
 ### 3. The iPhone settings file
 
@@ -188,7 +194,7 @@ Split (recommended: a 2.7 GB IPA, the game files copied to the phone once):
 
 ```sh
 $PY scripts/build_ipa_from_nsp.py "$G" --work-dir "$B" --env-file ios_env.txt --keep-extracted \
-  --romfs separate --gpu none -o "$G/OcarinaOfTime-V4.ipa"
+  --romfs separate --gpu none -o "$G/OcarinaOfTime-V5.ipa"
 ```
 
 Bundled (one 26.9 GB IPA with the game files inside; some sideloaders cannot take a file this large):
@@ -220,7 +226,7 @@ $PY scripts/build_ipa_from_nsp.py "$G" --platform mac-app --work-dir "$B" --env-
 
 Make the Mac's resolution file first (step 2, `romfs_overlay_mac`, or `romfs_overlay` for 720p); without one the game renders at its own dynamic resolution. Builds before the upscaler-chain fix showed a black world with `DM_UPSCALER=metalfx` (from `ios_env.txt`) at that resolution; on such a build, add `DM_UPSCALER=game` to `~/Library/Application Support/nxnative/0400486024DEC000/env.txt`, which wins over the app's own `env.txt`.
 
-A self-contained, double-clickable app: the game files are APFS clones of the build's (no extra 26 GB on the same volume), the Mac shaders, a pipeline archive made with `metal-tt` for this Mac's GPU, and the native-resolution file. Its settings window opens before the game starts; **Console mode** picks Handheld (1920 × 1080) or Docked (2560 × 1440). On a MacBook Air M5 the native resolutions run well under 60 fps, docked especially: the 720p build already takes about 16 ms of GPU a frame. Saves go to `~/Library/Application Support/nxnative/0400486024DEC000/`, the log to `~/Library/Logs/nxnative/0400486024DEC000.log`.
+A self-contained, double-clickable app: the game files are APFS clones of the build's (no extra 26 GB on the same volume), the Mac shaders, a pipeline archive made with `metal-tt` for this Mac's GPU, and the resolution files. Its settings window opens before the game starts; **Console mode** picks Handheld (1280 × 720) or Docked (1951 × 1098), **Frame rate** 30 or 60. Saves go to `~/Library/Application Support/nxnative/0400486024DEC000/`, the log to `~/Library/Logs/nxnative/0400486024DEC000.log`.
 
 ## Tests and results
 
@@ -239,13 +245,14 @@ All on the v1 dump (v131072). Mac runs were capped by a memory guard (the game k
 | Mac play test with the fix | Mac, 73 s until the window was closed | No crash; frame p50 16.5-17.9 ms, a few 90-127 ms loading hitches; peak footprint 7.4 GB |
 | Mac at 720p, same save, standing still: the 15:21 host against the current one | MacBook Air M5, 130 s each | The same speed (GPU 20-23 ms right after entering gameplay, settling to 17-19 ms): no regression. The Mac was slower than in the afternoon's runs after about 1.5 hours of shader builds (likely heat; no thermal warning recorded) |
 | MetalFX upscaler at the game's own 1440 × 810 (another player's Mac app, reproduced here) | Mac, frame dumps (`DM_NVN_TEXDUMP`) | Before: the scene drew at 1440 × 810, the final 1920 × 1080 picture was black but for the HUD. After the fix: the world draws; at 720p MetalFX still draws the last stage |
+| V5 console modes | Mac, 720p handheld and docked at several scales, 80-100 s each | Handheld 1280 × 720, docked 1951 × 1098 at 0.9375, the mode's file served (`fs rom overlay: … for the docked mode`), no crash. With the Mac hot (GPU 19-20 ms) the 60 fps setting held a steady 30 (two vsyncs a frame) in both modes |
 | V4 frame step, 60 fps | Mac, 720p, 150 s | No crash. Kokiri Forest frame p50 16.6 ms, p95 18.5-21 ms, GPU 14 ms; late frames held two vsyncs (73 times) |
 | V4 frame step, 30 fps | Mac, 720p, 55 s | No crash. Frame p50 33.3 ms, p95 34-36 ms; 10 frames held three vsyncs around loading |
 
 
 ## Known issues and open work
 
-- **V4 is not yet tested on the iPhone**, and the 30 fps game speed is not yet measured (see [Frame rate](#frame-rate)).
+- **V4 and V5 are not yet tested on the iPhone**, and the 30 fps game speed is not yet measured (see [Frame rate](#frame-rate)).
 - **iPhone frame rate:** V2 ran at about 38 fps after the opening cutscene. The GPU needs 15-22 ms a frame at 720p, at or over the 16.7 ms of 60 fps, and iOS moved the game onto the efficiency cores as the run went on (about 1.5 GHz). Run inside LiveContainer, the app's own Game Mode and games category (`LSSupportsGameMode`, `LSApplicationCategoryType`) probably do not apply; a direct install, a cool phone and the Performance HUD off are the next things to measure. V3 reached about 40 fps at best. V4's 30 fps setting gives a steady alternative.
 - **Mac frame rate:** mostly 60 fps at 720p on the MacBook Air M5, with dips outdoors (GPU 13-19 ms a frame), more when the Mac is hot. Without the 720p file the game renders up to 1440 × 810 and Kokiri Forest runs at 43-52 fps.
 - **Two stalls of about 0.9 s** in a Mac play test, on the game's side (the submit time was small). Not investigated.

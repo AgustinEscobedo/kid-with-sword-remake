@@ -2,11 +2,12 @@
 # oot_res_overlay.py <RomFS.img> <overlay folder> <top scale> [<LoadThreshold> | -] [flat]
 # The Legend of Zelda: Ocarina of Time (Switch 2, 0400486024DEC000): its render resolution, through the game's own dynamic-resolution table. Writes a modified copy of
 # Pack/Bootup.Nin_Ounce_NVN2.pack.zs into <overlay folder>/Pack/, for DM_ROMFS_OVERLAY (the IPA's romfs_overlay folder, the Mac app's --romfs-overlay); the RomFS image itself is not changed.
-# In System/GameGraphics/ModelSceneExtensionParam the game has one base resolution per mode (ResolutionParam: 1920x1080 handheld, 2560x1440 docked) and dynamic-resolution levels
+# In System/GameGraphics/ModelSceneExtensionParam the game has one base resolution per mode (ResolutionParam: 1920x1080 handheld, 2560x1440 docked, of which docked shows 2048x1152) and dynamic-resolution levels
 # (DynamicResolutionParam: ResolutionReduceScale 0.75 down to 0.333, LoadThreshold 95) that multiply that base. Every ResolutionReduceScale is multiplied by <top scale> / 0.75, so the top
 # level renders at <top scale> x the base and the lower levels keep their order; with "flat" every level is <top scale>, one fixed resolution (the game then never makes a new set of render
 # targets). The optional fourth argument sets every LoadThreshold (GPU load in percent over which the game steps down; '-' keeps them). Recompressed with the dictionary the original used.
-# Examples (docs/games/kid-with-sword-remake.md): 0.66667 - flat = 1280x720 handheld (the iPhone build); 1.0 - flat = the native 1920x1080 handheld / 2560x1440 docked (the Mac app).
+# Examples (docs/games/kid-with-sword-remake.md): into <romfs_overlay>/handheld, 0.666667 - flat = 1280x720; into <romfs_overlay>/docked, 0.9375 - flat = 1951x1098 (docked sizes come in
+# steps of about 45 pixels; 1920x1080 is not one). The host serves the subfolder for the console mode (hle_fs.c rom_overlay_set).
 # Needs the zstandard package (pip install zstandard). The game's files are read from your own dump; nothing of the game is in this repository.
 import sys, os, struct, zstandard
 img, out, top = sys.argv[1], sys.argv[2], float(sys.argv[3]); thr = float(sys.argv[4]) if len(sys.argv) > 4 and sys.argv[4] != '-' else None   # optional: every LoadThreshold set to this ('-' keeps them)
