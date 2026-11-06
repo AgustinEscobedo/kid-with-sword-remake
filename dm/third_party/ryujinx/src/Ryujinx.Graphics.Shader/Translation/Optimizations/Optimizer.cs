@@ -391,10 +391,11 @@ namespace Ryujinx.Graphics.Shader.Translation.Optimizations
                     {
                         Debug.Assert(src.AsgOp != null);
 
-                        // nxnative (from MacNativeGames' translator patch 0002, after Ryujinx_Optime 01a1e37f): follow only into a producer that will be removed
-                        // itself. One with side effects (an atomic, a call) stays in the block when its result is unused, so its sources are still live; dropping
-                        // their uses here let the next dead-code pass delete the chain that feeds it, and the atomic then read undefined values.
-                        if (!HasSideEffects(src.AsgOp))
+                        // nxnative (from MacNativeGames' translator patch 0002, after Ryujinx_Optime 01a1e37f; nanotchec's #1343): follow only into a producer that will be
+                        // removed itself. One with side effects (an atomic, a call), or one with another live result (a multi-result image load), stays in the block, so its
+                        // sources are still live; dropping their uses here let the next dead-code pass delete the chain that feeds it, and it then read undefined values
+                        // (Ocarina of Time's foliage compute read its images at uninitialized coordinates: grass placed anew every frame)
+                        if (IsUnused(src.AsgOp))
                         {
                             nodes.Enqueue(src.AsgOp);
                         }

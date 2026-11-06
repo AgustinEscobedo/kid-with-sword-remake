@@ -102,7 +102,7 @@ def by_build(main_id):   # the profile whose build rows register this main build
 
 
 # agl's upscaler network (NDSR), by where the shader map found each key: the compute shaders of agl_ndsr.pck (Donkey Kong Bananza's 24 in its release library, Splatoon Raiders' 20 in its debug one)
-UPSCALER_SOURCE = re.compile(r'/agl_ndsr\.pck#')
+UPSCALER_SOURCE = re.compile(r'/agl_ndsr(_vr(_light)?)?\.pck#')   # Ocarina of Time's are the _vr / _vr_light packs
 
 
 def upscaler_keys(g):
@@ -191,8 +191,34 @@ def header_one(g):
     if sks and (not m or not 0x30 <= int(m[1], 0) or not 0 < int(m[2], 0) or int(m[1], 0) + int(m[2], 0) > 0x880 or (int(m[1], 0) < 0x760 and int(m[1], 0) + int(m[2], 0) > 0x700)):   # not over +0x700..+0x75f, the code area and compute fields the tools read
         sys.exit(f'{g.id}: shader_key_skip takes <offset>+<length> within the first 0x880 bytes of the control section, past its header (+0x30) and clear of +0x700..+0x75f: {sks}')
     sko, skl = (int(m[1], 0), int(m[2], 0)) if m else (0, 0)
+    tsa = g.get('tex_soft_arrays', 'on')   # with tex_soft: whether 2D arrays are soft too (nvn_mtl.m tex_soft): on / off
+    if tsa not in ('on', 'off'): sys.exit(f'{g.id}: tex_soft_arrays must be on or off: {tsa}')
+    tsl = g.get('tex_soft_levels', '1')   # with tex_soft: how many finest levels a soft texture leaves out, 1 to 3 (nvn_mtl.m tex_soft_n)
+    if tsl not in ('1', '2', '3'): sys.exit(f'{g.id}: tex_soft_levels must be 1, 2 or 3: {tsl}')
+    tsf = g.get('tex_soft', 'off')   # large block-compressed packaged textures kept without their finest level (nvn_mtl.m tex_soft): on / off
+    if tsf not in ('on', 'off'): sys.exit(f'{g.id}: tex_soft must be on or off: {tsf}')
+    gmb = g.get('gmem_nobig', 'off')   # large pools in the raw global memory table by their resident chunks only (nvn_mtl.m gmem_nobig_on): on / off
+    if gmb not in ('on', 'off'): sys.exit(f'{g.id}: gmem_nobig must be on or off: {gmb}')
+    rtl = g.get('rt_lossy', 'off')   # colour render targets the GPU writes only as attachments made with Metal's lossy compression (about half the memory and bandwidth; nvn_mtl.m rt_lossy): on / off
+    if rtl not in ('on', 'off'): sys.exit(f'{g.id}: rt_lossy must be on or off: {rtl}')
+    upc = g.get('upscaler_chain', '')   # <stage>,<stage>...><last>: an upscaler that is a chain of shaders (16-digit keys); with DM_UPSCALER=metalfx the stages before the last are skipped and MetalFX scales the first stage's input into the last's image (nvn_mtl.m up_chain)
+    if upc and not re.fullmatch(r'[0-9a-f]{16}(,[0-9a-f]{16})*>[0-9a-f]{16}', upc): sys.exit(f'{g.id}: upscaler_chain takes <key>,<key>...><key>: {upc}')
+    fcp = g.get('fps_cap_present', 'off')   # fps_target / the player's frame rate held by presentation alone (hle_nvn.c fps_present_cap), for a game whose logic follows real time: on / off
+    if fcp not in ('on', 'off'): sys.exit(f'{g.id}: fps_cap_present must be on or off: {fcp}')
+    rtd = g.get('rt_drop', 'off')   # render targets whose storage a later-drawn render target took over, and idle since, kept as 1x1 stand-ins until drawn again (nvn_mtl.m rtd_sweep): on / off
+    if rtd not in ('on', 'off'): sys.exit(f'{g.id}: rt_drop must be on or off: {rtd}')
+    rta = g.get('rt_alias', 'off')   # GPU-only textures in a pool the CPU cannot access placed in heaps over the pool, so textures over the same storage share memory as on the console (nvn_mtl.m pool_heap_texture): on / off
+    if rta not in ('on', 'off'): sys.exit(f'{g.id}: rt_alias must be on or off: {rta}')
+    gms = g.get('gmem_skip', 'off')   # compressible, shader code and GPU no-access pools out of the raw global memory pool table (nvn_mtl.m mtl_pool_noraw): on / off
+    if gms not in ('on', 'off'): sys.exit(f'{g.id}: gmem_skip must be on or off: {gms}')
+    gml = g.get('gmem_lazy', 'off')   # the raw global memory pool table lists resident pools only (nvn_mtl.m gmem_lazy): on / off
+    if gml not in ('on', 'off'): sys.exit(f'{g.id}: gmem_lazy must be on or off: {gml}')
     rcd = g.get('render_cond', 'off')   # NVN conditional rendering evaluated at replay, timestamp reports with counter 0 (nvn_mtl.m OP_RENDER_COND): on / off
     if rcd not in ('on', 'off'): sys.exit(f'{g.id}: render_cond must be on or off: {rcd}')
+    trl = g.get('tex_release', 'off')   # guest copies of uploaded textures given back once on the GPU (nvn_mtl.m rel_mode; DM_TEX_RELEASE overrides): 1 = CPU_NO_ACCESS pools, 2 = also CPU-visible ones
+    if trl not in ('off', '1', '2'): sys.exit(f'{g.id}: tex_release must be off, 1 or 2: {trl}')
+    psr = g.get('pool_skip_retired', 'off')   # pool tables give a retired texture ID without a view the dummy instead of a texture made again (nvn_mtl.m pool_gpu; DM_NVN_POOL_SKIP_RETIRED overrides): on / off
+    if psr not in ('on', 'off'): sys.exit(f'{g.id}: pool_skip_retired must be on or off: {psr}')
     tfu = g.get('tex_flush_upload', 'off')   # textures written by the CPU into a pool and published with nvnMemoryPoolFlushMappedRange are uploaded like packaged ones (hle_nvn.c): on / off
     if tfu not in ('on', 'off'): sys.exit(f'{g.id}: tex_flush_upload must be on or off: {tfu}')
     tdu = g.get('tex_dirty_upload', 'off')   # with tex_flush_upload: a registered texture the CPU writes after init without any flush is uploaded too (dirty pages, hle_nvn.c nvn_ft_written): on / off
@@ -257,6 +283,19 @@ def header_one(g):
          f'#define DM_GAME_TEX_FLUSH_UPLOAD {int(tfu == "on")}',
          f'#define DM_GAME_SHADER_KEY_SKIP_OFF {sko:#x}', f'#define DM_GAME_SHADER_KEY_SKIP_LEN {skl:#x}',
          f'#define DM_GAME_RENDER_COND {int(rcd == "on")}',
+         f'#define DM_GAME_GMEM_LAZY {int(gml == "on")}',
+         f'#define DM_GAME_GMEM_SKIP {int(gms == "on")}',
+         f'#define DM_GAME_GMEM_NOBIG {int(gmb == "on")}',
+         f'#define DM_GAME_TEX_SOFT {int(tsf == "on")}',
+         f'#define DM_GAME_TEX_SOFT_LEVELS {int(tsl)}',
+         f'#define DM_GAME_TEX_SOFT_ARRAYS {int(tsa == "on")}',
+         f'#define DM_GAME_RT_ALIAS {int(rta == "on")}',
+         f'#define DM_GAME_RT_DROP {int(rtd == "on")}',
+         f'#define DM_GAME_FPS_CAP_PRESENT {int(fcp == "on")}',
+         f'#define DM_GAME_UPSCALER_CHAIN "{upc}"',
+         f'#define DM_GAME_RT_LOSSY {int(rtl == "on")}',
+         f'#define DM_GAME_POOL_SKIP_RETIRED {int(psr == "on")}',
+         f'#define DM_GAME_TEX_RELEASE {0 if trl == "off" else int(trl)}',
          f'#define DM_GAME_TEX_DIRTY_UPLOAD {int(tdu == "on")}',
          f'#define DM_GAME_TEX_DYN_SLOTS {int(tds == "on")}',
          f'#define DM_GAME_GPU_TS_SEGMENT {int(gts == "segment")}',

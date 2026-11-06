@@ -53,6 +53,8 @@ t_nvn: t_nvn.c ../nvn/hle_nvn.c ../../host/crash.c ../../host/hle_bigstack.c $(G
 	clang $(CFLAGS) -fobjc-arc -o $@ t_nvn.c ../../host/crash.c ../../host/hle_bigstack.c $(GFX) $(FW)
 t_dirty_slots: t_dirty_slots.c ../nvn/nvn_dirty.c ../../host/crash.c ../nvn/nvn_dirty.h $(GAME_H)
 	clang $(CFLAGS) -o $@ t_dirty_slots.c ../../host/crash.c ../nvn/nvn_dirty.c
+t_dirty_discard: t_dirty_discard.c ../nvn/nvn_dirty.c ../../host/crash.c ../nvn/nvn_dirty.h $(GAME_H)
+	clang $(CFLAGS) -o $@ t_dirty_discard.c ../../host/crash.c ../nvn/nvn_dirty.c
 t_dirty_race: t_dirty_race.c ../nvn/nvn_dirty.c ../../host/crash.c ../nvn/nvn_dirty.h $(GAME_H)
 	clang $(CFLAGS) -o $@ t_dirty_race.c ../../host/crash.c
 t_dirty_retire_race: t_dirty_retire_race.c ../nvn/nvn_dirty.c ../../host/crash.c ../nvn/nvn_dirty.h $(GAME_H)
@@ -157,6 +159,9 @@ t_tex_fit_root: t_tex_fit_root.m $(MTL_T_DEP)
 .PHONY: check_t_tex_fit_root
 check_t_tex_fit_root: t_tex_fit_root
 	MTL_DEBUG_LAYER=1 ./t_tex_fit_root
+t_pool_retired: t_pool_retired.m $(MTL_T_DEP)
+	clang $(CFLAGS) -fobjc-arc -o $@ t_pool_retired.m $(MTL_T_SRC) $(FW)
+check_t_pool_retired: RUN_ENV = MTL_DEBUG_LAYER=1
 t_pool_chunks: t_pool_chunks.m $(MTL_T_DEP)
 	clang $(CFLAGS) -fobjc-arc -o $@ t_pool_chunks.m $(MTL_T_SRC) $(FW)
 # Raw global memory on the GPU through the host's pool table (t_gmem_raw.m), with the shader test_dmsh_ampere_mem.py translates (DMSH_TEST_XLATE, default the in-repo translator);
@@ -231,6 +236,9 @@ check_t_queue_origin: t_queue_origin
 	MTL_DEBUG_LAYER=1 ./t_queue_origin
 	DM_NVN_ENC_THREAD=1 MTL_DEBUG_LAYER=1 ./t_queue_origin
 check_t_rast_discard: RUN_ENV = MTL_DEBUG_LAYER=1
+t_gmem_marks: t_gmem_marks.m $(MTL_T_DEP)
+	clang $(CFLAGS) -fobjc-arc -o $@ t_gmem_marks.m $(MTL_T_SRC) $(FW)
+check_t_gmem_marks: RUN_ENV = MTL_DEBUG_LAYER=1
 t_cpu_storage: t_cpu_storage.m $(MTL_T_DEP)
 	clang $(CFLAGS) -fobjc-arc -o $@ t_cpu_storage.m $(MTL_T_SRC) $(FW)
 check_t_cpu_storage: RUN_ENV = MTL_DEBUG_LAYER=1
@@ -416,11 +424,21 @@ check_t_unwritten_store: RUN_ENV = MTL_DEBUG_LAYER=1
 t_upgrade_alias: t_upgrade_alias.m $(MTL_T_DEP)
 	clang $(CFLAGS) -fobjc-arc -o $@ t_upgrade_alias.m $(MTL_T_SRC) $(FW)
 check_t_upgrade_alias: RUN_ENV = MTL_DEBUG_LAYER=1
+t_alias_takeover: t_alias_takeover.m $(MTL_T_DEP)
+	clang $(CFLAGS) -fobjc-arc -o $@ t_alias_takeover.m $(MTL_T_SRC) $(FW)
+check_t_alias_takeover: RUN_ENV = MTL_DEBUG_LAYER=1
 t_srgb_alias: t_srgb_alias.m $(MTL_T_DEP)
 	clang $(CFLAGS) -fobjc-arc -o $@ t_srgb_alias.m $(MTL_T_SRC) $(FW)
 check_t_srgb_alias: RUN_ENV = MTL_DEBUG_LAYER=1
 t_image_alias: t_image_alias.m $(MTL_T_DEP)
 	clang $(CFLAGS) -fobjc-arc -o $@ t_image_alias.m $(MTL_T_SRC) $(FW)
+t_alias_retire: t_alias_retire.m $(MTL_T_DEP)
+	clang $(CFLAGS) -fobjc-arc -o $@ t_alias_retire.m $(MTL_T_SRC) $(FW)
+.PHONY: check_t_alias_retire
+check_t_alias_retire: t_alias_retire
+	DM_NVN_ENC_THREAD=0 MTL_DEBUG_LAYER=1 ./t_alias_retire
+	DM_NVN_ENC_THREAD=1 MTL_DEBUG_LAYER=1 ./t_alias_retire
+	MTL_DEBUG_LAYER=1 ./t_alias_retire off
 .PHONY: check_t_image_alias
 check_t_image_alias: t_image_alias
 	DM_NVN_ENC_THREAD=0 MTL_DEBUG_LAYER=1 ./t_image_alias

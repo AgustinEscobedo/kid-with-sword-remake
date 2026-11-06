@@ -10,9 +10,9 @@ ipa	OcarinaOfTime.ipa
 app_category	public.app-category.games
 
 # ---- Versions ----
-build	v0	v0	main=e0f3ccfaf50065ae4ea01eb5aeb13b1a	subsdk0=b0110087a7b339ef74588d3bd0b4dd5d	sdk=1643a838814f9c10c696f930ed681e7f
-package	v0
-shader_versions	v0
+build	v131072	v131072	main=e0f3ccfaf50065ae4ea01eb5aeb13b1a	subsdk0=b0110087a7b339ef74588d3bd0b4dd5d	sdk=1643a838814f9c10c696f930ed681e7f
+package	v131072
+shader_versions	v131072
 
 # ---- Files ----
 modules	main subsdk0 sdk
@@ -35,3 +35,27 @@ shader_note	0400486024DEC000 shaders
 # agl wraps its depth clears in render conditions, as on Donkey Kong Bananza and Splatoon Raiders: in Kokiri Forest the main opaque pass tests EQUAL against a copy of the prepass depth
 # that a conditional clear (skipped on the console) wiped first, so no lit geometry landed and the full-screen sky showed through everywhere (a white scene)
 render_cond	on
+
+# The RAM swap is upstream's DM_GUEST_FILE (on by itself on iOS when the memory pool does not fit the room to the limit); its memory pools stay anonymous (hle_svc.c dm_guest_pool_anon)
+# Raw global memory: compressible (render-target storage), shader code and GPU no-access pools are kept out of the pool table, which made every pool resident (nvn_mtl.m mtl_pool_noraw)
+gmem_skip	on
+# Pool tables give a finalized texture ID with no view the dummy instead of making its texture again: about 2.5 GB at the house-to-forest change (upstream #1393, nvn_mtl.m pool_skip_retired)
+pool_skip_retired	on
+# Guest copies of textures in CPU_NO_ACCESS pools (render and depth targets the game cannot read) given back once their GPU copy exists (upstream #1447, nvn_mtl.m rel_*): about 550 MB outdoors.
+# 2: also CPU-visible copies, pages unwritten since their upload (1.85 GB more in Kokiri Forest: peak 7.0 → 5.2 GB with the iPhone's guest files); no texture lost and no problem seen in a 4-minute play test
+tex_release	2
+# Large block-compressed textures from the game files kept without their finest level on the GPU (tex_soft, ported from the plumber-racer-2 fork)
+tex_soft	on
+# rt_drop (render targets taken over by a later-drawn one become 1x1 stand-ins, nvn_mtl.m rtd_sweep) is off: footprint 8.9 → 7.1 GB at the Kokiri Forest doorway, but the game still
+# samples textures the sweep took for dead (on the title screen 278 of about 300 stand-ins were drawn again): textures and objects popped on and off, surfaces swayed and some were missing
+rt_drop	off
+# Handheld, as the iPhone runs it (the game presents 1920x1080 instead of 2048x1152 docked)
+op_mode	handheld
+# Dynamic resolution reads the GPU time between the frame's timestamp reports, as on Donkey Kong Bananza and Breath of the Wild (the same EPD engine family): with one time a submission it
+# read about 0 and kept the full 1440x810 at 20-24 ms of GPU a frame on a MacBook Air M5. Each report takes its segment's GPU start / end (nvn_mtl.m rep_ticks)
+gpu_timestamps	segment
+# The game upscales through a chain: agl_ndsr_vr feature pass, network and blend at the render size, agl_ndsr_vr_light scale to 1920x1080. DM_UPSCALER=metalfx skips the chain for MetalFX (nvn_mtl.m up_chain)
+upscaler_chain	f8965bffbdf51d78,d17eefaff4f0bc23,a335c1db6270c355>aad7ea7e5c02f41d
+# Colour render targets drawn only as attachments (RGBA8 / BGRA8 / RGBA16F) kept with Metal lossy compression (rt_lossy, nvn_mtl.m rt_lossy): about 100 MB less in Link's house at 720p;
+# the scene colour (RG11B10F) and depth have no lossy form
+rt_lossy	on

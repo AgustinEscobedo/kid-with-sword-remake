@@ -246,12 +246,21 @@ NVN(nvnMemoryPoolBuilderSetDefaults, void, NVNmemoryPoolBuilder *b) { memset(b, 
 NVN(nvnMemoryPoolBuilderSetDevice, void, NVNmemoryPoolBuilder *b, NVNdevice *d) { ((pool_builder_t *)b)->dev = d; }
 NVN(nvnMemoryPoolBuilderSetStorage, void, NVNmemoryPoolBuilder *b, void *m, size_t n) { ((pool_builder_t *)b)->mem = m; ((pool_builder_t *)b)->size = n; }
 NVN(nvnMemoryPoolBuilderSetFlags, void, NVNmemoryPoolBuilder *b, int f) { ((pool_builder_t *)b)->flags = f; }
+void dm_guest_pool_anon(void *mem, size_t size);   // hle_svc.c: a pool's pages out of the guest memory file (mem_file)
 static uint8_t *vpool_reserve(pool_t *o); static void vpool_release(pool_t *o);   // sparse virtual pools, see MapVirtual
 NVN(nvnMemoryPoolInitialize, NVNboolean, NVNmemoryPool *p, const NVNmemoryPoolBuilder *b) {
     const pool_builder_t *s = (const pool_builder_t *)b; pool_t *o = (pool_t *)p;
     o->magic = MAGIC('P', 'O', 'O', 'L'); o->flags = s->flags; o->mem = s->mem; o->size = s->size; o->vp = NULL; o->vmode = 0; o->gpu_written = 0;
     if (!o->mem && (o->flags & 0x200)) { uint8_t *vr = vpool_reserve(o); if (vr) o->mem = vr; }   // a virtual pool's own address range until its first mapping decides (see MapVirtual)
-    else if (o->mem) { mtl_pool_add(o->mem, o->size); nvn_dirty_add_range(o->mem, o->size); }
+    else if (o->mem) { dm_guest_pool_anon(o->mem, o->size); mtl_pool_add(o->mem, o->size); mtl_pool_noraw(o->mem, o->flags); nvn_dirty_add_range(o->mem, o->size); }   // out of the guest memory file first (hle_svc.c)
+    { static int pf = -1; if (pf < 0) pf = getenv("DM_NVN_POOLFLAGS") != NULL;   // DM_NVN_POOLFLAGS=1 (diagnostic): live pool bytes by flags, each time they pass another 256 MB
+      if (pf && o->mem) { static pthread_mutex_t mu = PTHREAD_MUTEX_INITIALIZER; static struct { int f; uint64_t b, n; } t[64]; static int nt; static uint64_t tot, said;
+        pthread_mutex_lock(&mu); int k; for (k = 0; k < nt && t[k].f != o->flags; k++) {} if (k == nt && nt < 64) { t[nt].f = o->flags; nt++; }
+        if (k < 64) { t[k].b += o->size; t[k].n++; } tot += o->size;
+        if (tot >= said + (256ull << 20)) { said = tot; char line[1024]; size_t q = 0;
+          for (int i = 0; i < nt && q < sizeof line; i++) q += (size_t)snprintf(line + q, sizeof line - q, " %#x: %llu pools %llu MB;", t[i].f, (unsigned long long)t[i].n, (unsigned long long)(t[i].b >> 20));
+          LOG("[poolflags] %llu MB made in all:%s", (unsigned long long)(tot >> 20), line); }
+        pthread_mutex_unlock(&mu); } }
     if (!o->mem && !(o->flags & 0x200)) LOG("[RED] MemoryPoolInitialize: non-virtual pool has no storage flags=%#x size=%#llx", o->flags, o->size);
     if (getenv("DM_NVN_VLOG")) { LOG("[nvn] MemoryPool %p mem=%p size=%#llx flags=%#x", (void *)p, (void *)o->mem, (unsigned long long)o->size, o->flags); void dm_backtrace(uint64_t fp); dm_backtrace((uint64_t)__builtin_frame_address(0)); }
     OLOG("MemoryPool %p mem=%p size=%#llx flags=%#x", (void *)p, (void *)o->mem, o->size, o->flags);
@@ -271,7 +280,7 @@ NVN(nvnMemoryPoolFlushMappedRange, void, const NVNmemoryPool *p, ptrdiff_t off, 
     if (!(o->flags & 0x200)) fl_add(o->mem + off, n);
     ft_flush(o->mem + off, n);
 }
-NVN(nvnMemoryPoolGetBufferAddress, NVNbufferAddress, const NVNmemoryPool *p) { return (NVNbufferAddress)((const pool_t *)p)->mem; }
+NVN(nvnMemoryPoolGetBufferAddress, NVNbufferAddress, const NVNmemoryPool *p) { const pool_t *o = (const pool_t *)p; mtl_pool_buffer_addr(o->mem, o->size); return (NVNbufferAddress)o->mem; }
 
 // ---------- Descriptor pools ----------
 // One ID space per pool. In NVN a texture or sampler ID indexes the pool the command buffer has bound (SetTexturePool / SetSamplerPool), and two pools may use the same IDs. The replay keeps
@@ -336,8 +345,10 @@ NVN(nvnTextureBuilderSetDefaults, void, NVNtextureBuilder *b) {
 NVN(nvnTextureBuilderSetDevice, void, NVNtextureBuilder *b, NVNdevice *d) { TB(b)->dev = d; }
 NVN(nvnTextureBuilderSetFlags, void, NVNtextureBuilder *b, int f) { TB(b)->d.flags = f; }
 NVN(nvnTextureBuilderSetTarget, void, NVNtextureBuilder *b, NVNtextureTarget t) { TB(b)->d.target = t; }
-NVN(nvnTextureBuilderSetWidth, void, NVNtextureBuilder *b, int v) { TB(b)->d.width = v; }
-NVN(nvnTextureBuilderSetHeight, void, NVNtextureBuilder *b, int v) { TB(b)->d.height = v; }
+static void size_trace(int w, int h, uint64_t ra, void *fp0);
+static int size_trace_on(void) { static int on = -1; if (on < 0) on = getenv("DM_NVN_SIZE_TRACE") != NULL; return on; }
+NVN(nvnTextureBuilderSetWidth, void, NVNtextureBuilder *b, int v) { TB(b)->d.width = v; if (size_trace_on() && v) size_trace(v, 0, (uint64_t)__builtin_return_address(0), __builtin_frame_address(1)); }
+NVN(nvnTextureBuilderSetHeight, void, NVNtextureBuilder *b, int v) { TB(b)->d.height = v; if (size_trace_on() && v) size_trace(0, v, (uint64_t)__builtin_return_address(0), __builtin_frame_address(1)); }
 NVN(nvnTextureBuilderSetDepth, void, NVNtextureBuilder *b, int v) { TB(b)->d.depth = v; }
 NVN(nvnTextureBuilderSetSize1D, void, NVNtextureBuilder *b, int w) { TB(b)->d.width = w; TB(b)->d.height = TB(b)->d.depth = 1; }
 NVN(nvnTextureBuilderSetLevels, void, NVNtextureBuilder *b, int v) { TB(b)->d.levels = v; }
@@ -545,7 +556,7 @@ NVN(nvnTextureGetSamples, int, const NVNtexture *t) { return CTX(t)->d.samples; 
 NVN(nvnTextureGetMemoryPool, NVNmemoryPool *, const NVNtexture *t) { return (NVNmemoryPool *)CTX(t)->pool; }
 NVN(nvnTextureGetMemoryOffset, ptrdiff_t, const NVNtexture *t) { return (ptrdiff_t)CTX(t)->off; }
 // The GPU address of the texture's storage (DRAGON QUEST XI S, Unreal Engine 4.18, asks for it at start): pool address + offset, the same address space as nvnMemoryPoolGetBufferAddress
-NVN(nvnTextureGetTextureAddress, NVNtextureAddress, const NVNtexture *t) { const tex_t *o = CTX(t); return o->pool ? (NVNtextureAddress)(o->pool->mem + o->off) : 0; }
+NVN(nvnTextureGetTextureAddress, NVNtextureAddress, const NVNtexture *t) { const tex_t *o = CTX(t); if (o->pool) mtl_pool_buffer_addr(o->pool->mem, o->pool->size); return o->pool ? (NVNtextureAddress)(o->pool->mem + o->off) : 0; }
 // The size of a texture's ZCull save area (SaveZCullData / RestoreZCullData). The host does no ZCull and never touches the area, but games allocate it from their own pools, and NVN
 // does not report 0. Cuphead (Unity 2017.4) allocates one per depth target (main+0x1948060) from its pool allocator, which gives a zero-size request the offset of a live block; its
 // map of allocations then loses that block (the zero-size one's size overwrites it, and freeing the zero-size one deletes it), and the block's own free later pushes a garbage-sized
@@ -1022,8 +1033,8 @@ NVN(nvnCommandBufferSetRenderTargets, void, NVNcommandBuffer *c, int n, const NV
     p_set_rt *r = REC_SNAP(c, OP_SET_RT, p_set_rt, n + 1); r->n = n;
     for (int i = 0; i < n; i++) { r->color[i] = ct ? tex_snap(r, SNAP_OFF(p_set_rt), i, ct[i], (uint64_t)__builtin_return_address(0)) : NULL; copy_view(&r->cview[i], &r->has_cview[i], cv ? cv[i] : NULL); }
     r->depth = tex_snap(r, SNAP_OFF(p_set_rt), n, dt, (uint64_t)__builtin_return_address(0)); copy_view(&r->dview, &r->has_dview, dv);
-    for (int i = 0; i < n; i++) if (r->color[i]) mtl_pool_gpu_written(r->color[i]->pool);
-    if (r->depth) mtl_pool_gpu_written(r->depth->pool);
+    for (int i = 0; i < n; i++) if (r->color[i]) mtl_tex_gpu_written(r->color[i]);
+    if (r->depth) mtl_tex_gpu_written(r->depth);
 }
 NVN(nvnCommandBufferClearColor, void, NVNcommandBuffer *c, int index, const float *rgba, int mask) {
     p_clear_color *r = REC(c, OP_CLEAR_COLOR, p_clear_color); r->index = index; r->mask = mask; memcpy(r->rgba, rgba, 16);
@@ -1163,7 +1174,7 @@ NVN(nvnCommandBufferSetSamplerPool, void, NVNcommandBuffer *c, const NVNsamplerP
 NVN(nvnCommandBufferCopyBufferToTexture, void, NVNcommandBuffer *c, NVNbufferAddress src, const NVNtexture *t, const NVNtextureView *v,
     const NVNcopyRegion *r, int flags) {
     p_copy_b2t *o = REC_SNAP(c, OP_COPY_B2T, p_copy_b2t, 1); o->src = src; o->tex = tex_snap(o, SNAP_OFF(p_copy_b2t), 0, t, (uint64_t)__builtin_return_address(0)); copy_view(&o->view, &o->has_view, v); o->r = *r; o->flags = flags;
-    if (o->tex) mtl_pool_gpu_written(o->tex->pool);
+    if (o->tex) mtl_tex_gpu_written(o->tex);
 }
 NVN(nvnCommandBufferCopyTextureToBuffer, void, NVNcommandBuffer *c, const NVNtexture *t, const NVNtextureView *v, const NVNcopyRegion *r,
     NVNbufferAddress dst, int flags) {
@@ -1171,16 +1182,16 @@ NVN(nvnCommandBufferCopyTextureToBuffer, void, NVNcommandBuffer *c, const NVNtex
 }
 // Clear a texture region with the given value (float / unsigned integer versions; mask = channel write mask)
 NVN(nvnCommandBufferClearTexture, void, NVNcommandBuffer *c, const NVNtexture *t, const NVNtextureView *v, const NVNcopyRegion *r, const float *rgba, int mask) {
-    p_clear_tex *o = REC_SNAP(c, OP_CLEAR_TEX, p_clear_tex, 1); o->tex = tex_snap(o, SNAP_OFF(p_clear_tex), 0, t, (uint64_t)__builtin_return_address(0)); if (o->tex) mtl_pool_gpu_written(o->tex->pool); copy_view(&o->view, &o->has_view, v); o->r = *r; o->mask = mask; o->is_uint = 0; memcpy(o->c.f, rgba, 16);
+    p_clear_tex *o = REC_SNAP(c, OP_CLEAR_TEX, p_clear_tex, 1); o->tex = tex_snap(o, SNAP_OFF(p_clear_tex), 0, t, (uint64_t)__builtin_return_address(0)); if (o->tex) mtl_tex_gpu_written(o->tex); copy_view(&o->view, &o->has_view, v); o->r = *r; o->mask = mask; o->is_uint = 0; memcpy(o->c.f, rgba, 16);
 }
 NVN(nvnCommandBufferClearTextureui, void, NVNcommandBuffer *c, const NVNtexture *t, const NVNtextureView *v, const NVNcopyRegion *r, const uint32_t *rgba, int mask) {
-    p_clear_tex *o = REC_SNAP(c, OP_CLEAR_TEX, p_clear_tex, 1); o->tex = tex_snap(o, SNAP_OFF(p_clear_tex), 0, t, (uint64_t)__builtin_return_address(0)); if (o->tex) mtl_pool_gpu_written(o->tex->pool); copy_view(&o->view, &o->has_view, v); o->r = *r; o->mask = mask; o->is_uint = 1; memcpy(o->c.u, rgba, 16);
+    p_clear_tex *o = REC_SNAP(c, OP_CLEAR_TEX, p_clear_tex, 1); o->tex = tex_snap(o, SNAP_OFF(p_clear_tex), 0, t, (uint64_t)__builtin_return_address(0)); if (o->tex) mtl_tex_gpu_written(o->tex); copy_view(&o->view, &o->has_view, v); o->r = *r; o->mask = mask; o->is_uint = 1; memcpy(o->c.u, rgba, 16);
 }
 NVN(nvnCommandBufferCopyTextureToTexture, void, NVNcommandBuffer *c, const NVNtexture *s, const NVNtextureView *sv, const NVNcopyRegion *sr,
     const NVNtexture *d, const NVNtextureView *dv, const NVNcopyRegion *dr, int flags) {
     p_copy_t2t *o = REC_SNAP(c, OP_COPY_T2T, p_copy_t2t, 2); o->src = tex_snap(o, SNAP_OFF(p_copy_t2t), 0, s, (uint64_t)__builtin_return_address(0)); o->dst = tex_snap(o, SNAP_OFF(p_copy_t2t), 1, d, (uint64_t)__builtin_return_address(0));
     copy_view(&o->sv, &o->has_sv, sv); copy_view(&o->dv, &o->has_dv, dv); o->sr = *sr; o->dr = *dr; o->flags = flags;
-    if (o->dst) mtl_pool_gpu_written(o->dst->pool);
+    if (o->dst) mtl_tex_gpu_written(o->dst);
 }
 // A textured rectangle into the bound colour targets, replayed as draw_tex (nvn_mtl.m). The handle's IDs are moved to the pools this command buffer bound, as bind_handles does:
 // Streets of Rage 4 draws its movie frames into its scene target this way, from a second texture pool. Only the handle's lower 32 bits reach the GPU (bind_handles)
@@ -1382,7 +1393,10 @@ NVN(nvnWindowBuilderSetTextures, void, NVNwindowBuilder *b, int n, NVNtexture *c
     if (n < 0 || n > 4) { LOG("[RED] WindowBuilderSetTextures count %d", n); n = n < 0 ? 0 : 4; }
     WB(b)->ntex = n; for (int i = 0; i < n; i++) WB(b)->tex[i] = t[i];
 }
-NVN(nvnWindowBuilderSetPresentInterval, void, NVNwindowBuilder *b, int v) { WB(b)->interval = v; }
+NVN(nvnWindowBuilderSetPresentInterval, void, NVNwindowBuilder *b, int v) { WB(b)->interval = v;
+    uint64_t ra = (uint64_t)__builtin_return_address(0); module_t *m = module_of((void *)ra); uint64_t *fp = __builtin_frame_address(1); char bt[256]; size_t o = 0;
+    for (int k = 0; k < 5 && fp && o < sizeof bt - 32; k++) { uint64_t lr = fp[1] & 0x0000ffffffffffffull; module_t *mm = module_of((void *)lr); o += snprintf(bt + o, sizeof bt - o, " %s+%#llx", mm ? mm->name : "?", mm ? (unsigned long long)(lr - (uint64_t)mm->base) : (unsigned long long)lr); if ((uint64_t)fp[0] <= (uint64_t)fp) break; fp = (uint64_t *)fp[0]; }
+    LOG("[nvn] window builder present interval %d (from %s+%#llx;%s)", v, m ? m->name : "?", m ? (unsigned long long)(ra - (uint64_t)m->base) : 0ULL, bt); }
 NVN(nvnWindowBuilderGetPresentInterval, int, const NVNwindowBuilder *b) { return WB(b)->interval; }   // Yoshi and the Mysterious Book (Unreal Engine 5.4) reads it back
 NVN(nvnWindowInitialize, NVNboolean, NVNwindow *w, const NVNwindowBuilder *b) {
     const win_builder_t *s = (const win_builder_t *)b; win_t *o = (win_t *)w;
@@ -1499,7 +1513,8 @@ static void dump_frame(void) {
 counts_done:
     // Every 300 frames read resident memory and hand it to the graphics layer to print the memory readout line (mtl_mem_stat, low frequency, capped). Memory watchdog: when resident memory exceeds the cap, log a failure and exit on its own. On by default only on the Mac host (24 GB: runaway host memory
     // drags the whole machine into a kernel panic, which happened twice with other programs on the same machine), or set for tests with DM_MEM_CAP_GB=<integer>; the player's iOS app has no cap (exiting before the system kills it is pointless and only adds another kind of crash)
-    if (g_frame % 300 == 0) { task_vm_info_data_t vi; mach_msg_type_number_t cnt = TASK_VM_INFO_COUNT;
+    static int memkind = -1; if (memkind < 0) memkind = getenv("DM_NVN_MEMKIND") != NULL;   // the breakdown diagnostic reads memory every 60 frames, to catch a burst
+    if (g_frame % (memkind ? 60 : 300) == 0) { task_vm_info_data_t vi; mach_msg_type_number_t cnt = TASK_VM_INFO_COUNT;
         if (task_info(mach_task_self(), TASK_VM_INFO, (task_info_t)&vi, &cnt) == KERN_SUCCESS) { unsigned long long mb = (unsigned long long)(vi.phys_footprint >> 20); void mtl_mem_stat(unsigned long long, unsigned long long); mtl_mem_stat(g_frame, mb);
             static long cap = -1; if (cap < 0) { const char *e = getenv("DM_MEM_CAP_GB"); cap = e ? atol(e) : DM_MEM_CAP_DEFAULT_GB; }
             if (cap > 0 && mb > (unsigned long long)cap * 1024) { LOG("[RED] memory watchdog: resident %llu MB over the limit of %ld GB (frame %llu), exiting", mb, cap, (unsigned long long)g_frame); _exit(86); } } }
@@ -1802,7 +1817,10 @@ static int fps_present_cap(void) {
     if (g_present_cap < 0) {
         const char *e=getenv("DM_FPS_TARGET");int t=e?atoi(e):DM_GAME_FPS_TARGET;
         g_present_cap=t==30||t==60?t:t==120?60:0;   // 120 here: not this game's (fps_high), so it runs at 60
-        if (g_present_cap && !dm_fps_lock_engine()) {
+        // DM_FPS_CAP_FORCE=1 (or the profile's fps_cap_present on): the cap holds presentation even without a frame step or an engine limit, for a game whose logic follows real time
+        static int force = -1; if (force < 0) { const char *f = getenv("DM_FPS_CAP_FORCE"); force = f && *f ? atoi(f) != 0 : DM_GAME_FPS_CAP_PRESENT; }
+        if (g_present_cap && force) LOG("[nvn] present cap %d fps (%s): presentation held at it (no frame step: the game's logic follows real time, fps_cap_present)", g_present_cap, e ? "DM_FPS_TARGET" : "game profile fps_target");
+        else if (g_present_cap && !dm_fps_lock_engine()) {
             LOG("[nvn] present cap %d fps (%s) not applied: this main has neither a frame step nor an engine frame limit the host writes, so the game's own present interval stays", g_present_cap, e ? "DM_FPS_TARGET" : "game profile fps_target");
             g_present_cap=0;
         }
@@ -2137,26 +2155,27 @@ NVN(nvnBufferInitialize, NVNboolean, NVNbuffer *buf, const NVNbufferBuilder *b) 
     // compressing encoder (when the pause menu opens, and near a save commit): the buffer's one use is a texture-to-buffer copy of the picture's own extent, which lies inside the pool. Not an error by itself: one line.
     if ((uint64_t)bb->off + bb->size > bb->pool->size) ONCE_LOG("BufferInitialize: a buffer reaches past the end of its pool (offset %#llx size %#llx pool %#llx); only an access that leaves the pool is an error, and it is reported where it happens", (unsigned long long)bb->off, (unsigned long long)bb->size, (unsigned long long)bb->pool->size);
     *(buf_t *)buf = (buf_t){.magic = MAGIC('B', 'U', 'F', 0), .pool = bb->pool, .off = bb->off, .size = bb->size};
+    mtl_pool_buffer_addr(bb->pool->mem, bb->pool->size);   // its address can end up in memory a shader loads it from (gmem_map_gpu)
     OLOG("BufferInitialize %p pool=%p off=%#llx size=%#llx", (void *)buf, (const void *)bb->pool, (unsigned long long)bb->off, (unsigned long long)bb->size);
     return 1;
 }
 NVN(nvnBufferFinalize, void, NVNbuffer *buf) { ((buf_t *)buf)->magic = 0; }
 NVN(nvnBufferSetDebugLabel, void, NVNbuffer *buf, const char *s) { (void)buf; (void)s; }
-NVN(nvnBufferGetAddress, NVNbufferAddress, const NVNbuffer *buf) { return (NVNbufferAddress)(BF(buf)->pool->mem + BF(buf)->off); }
+NVN(nvnBufferGetAddress, NVNbufferAddress, const NVNbuffer *buf) { return buf && BF(buf)->pool ? (NVNbufferAddress)(BF(buf)->pool->mem + BF(buf)->off) : 0; }
 // A buffer or pool the CPU has no access to (NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS) maps to NULL, as in NVN, though the host's storage is CPU memory: EA SPORTS FC 27's Frostbite
 // renderer takes a buffer's GPU address as GetAddress + (its data pointer − Map), with a null data pointer for such a buffer (OpcodeCopySubresource), so a real pointer made the
 // copy's destination address 0 (FATAL buffer copy address is in no memory pool)
-NVN(nvnBufferMap, void *, const NVNbuffer *buf) { return BF(buf)->pool->flags & NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS ? NULL : BF(buf)->pool->mem + BF(buf)->off; }
-NVN(nvnBufferGetSize, size_t, const NVNbuffer *buf) { return (size_t)BF(buf)->size; }
-NVN(nvnBufferGetMemoryPool, NVNmemoryPool *, const NVNbuffer *buf) { return (NVNmemoryPool *)BF(buf)->pool; }
-NVN(nvnBufferGetMemoryOffset, ptrdiff_t, const NVNbuffer *buf) { return (ptrdiff_t)BF(buf)->off; }
+NVN(nvnBufferMap, void *, const NVNbuffer *buf) { return !buf || !BF(buf)->pool || (BF(buf)->pool->flags & NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS) ? NULL : BF(buf)->pool->mem + BF(buf)->off; }
+NVN(nvnBufferGetSize, size_t, const NVNbuffer *buf) { return buf ? (size_t)BF(buf)->size : 0; }
+NVN(nvnBufferGetMemoryPool, NVNmemoryPool *, const NVNbuffer *buf) { return buf ? (NVNmemoryPool *)BF(buf)->pool : NULL; }
+NVN(nvnBufferGetMemoryOffset, ptrdiff_t, const NVNbuffer *buf) { return buf ? (ptrdiff_t)BF(buf)->off : 0; }
 NVN(nvnBufferFlushMappedRange, void, const NVNbuffer *buf, ptrdiff_t off, size_t n) { (void)buf; (void)off; (void)n; }        // unified memory: nothing to flush
 NVN(nvnBufferInvalidateMappedRange, void, const NVNbuffer *buf, ptrdiff_t off, size_t n) { (void)buf; (void)off; (void)n; }
 
 // Memory pool queries
-NVN(nvnMemoryPoolGetFlags, NVNmemoryPoolFlags, const NVNmemoryPool *p) { return (NVNmemoryPoolFlags)((const pool_t *)p)->flags; }
-NVN(nvnMemoryPoolMap, void *, const NVNmemoryPool *p) { return ((const pool_t *)p)->flags & NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS ? NULL : ((const pool_t *)p)->mem; }   // NULL without CPU access (nvnBufferMap)
-NVN(nvnMemoryPoolGetSize, size_t, const NVNmemoryPool *p) { return (size_t)((const pool_t *)p)->size; }
+NVN(nvnMemoryPoolGetFlags, NVNmemoryPoolFlags, const NVNmemoryPool *p) { return p ? (NVNmemoryPoolFlags)((const pool_t *)p)->flags : 0; }
+NVN(nvnMemoryPoolMap, void *, const NVNmemoryPool *p) { return !p || (((const pool_t *)p)->flags & NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS) ? NULL : ((const pool_t *)p)->mem; }   // NULL without CPU access (nvnBufferMap)
+NVN(nvnMemoryPoolGetSize, size_t, const NVNmemoryPool *p) { return p ? (size_t)((const pool_t *)p)->size : 0; }
 NVN(nvnMemoryPoolInvalidateMappedRange, void, const NVNmemoryPool *p, ptrdiff_t off, size_t n) { (void)p; (void)off; (void)n; }
 NVN(nvnMemoryPoolSetDebugLabel, void, NVNmemoryPool *p, const char *s) { (void)p; (void)s; }
 // Debug labels: only for NVN debugging tools, unused by the host
@@ -2327,7 +2346,20 @@ NVN(nvnSamplerCompare, NVNboolean, const NVNsampler *a, const NVNsampler *b) {
 }
 
 // Texture builder / texture / view
-NVN(nvnTextureBuilderSetSize2D, void, NVNtextureBuilder *b, int w, int h) { TB(b)->d.width = w; TB(b)->d.height = h; TB(b)->d.depth = 1; }
+// Diagnostic DM_NVN_SIZE_TRACE=<w>x<h>[,<w>x<h>...]: who asks for a texture of that size (the guest's return addresses, by module offset, along its frame-pointer chain), each call site once
+static void size_trace(int w, int h, uint64_t ra, void *fp0) {
+    static int n = -1; static int tw[8], th[8]; static uint64_t seen[64]; static int nseen;
+    if (n < 0) { n = 0; for (const char *q = getenv("DM_NVN_SIZE_TRACE"); q && *q && n < 8; ) { int a, b2; if (sscanf(q, "%dx%d", &a, &b2) == 2) { tw[n] = a; th[n++] = b2; } q = strchr(q, ','); if (q) q++; } }
+    { static int all = -1, nall; if (all < 0) all = !strcmp(getenv("DM_NVN_SIZE_TRACE"), "all"); if (all) { if (nall++ < 80) LOG("[nvn] size trace (all) %dx%d", w, h); return; } }
+    int hit = 0; for (int i = 0; i < n; i++) hit |= (tw[i] == w || !w) && (th[i] == h || !h); if (!hit) return;   // 0: SetWidth / SetHeight alone
+    for (int i = 0; i < nseen; i++) if (seen[i] == ra) return; if (nseen < 64) seen[nseen++] = ra; else return;
+    char line[1024]; size_t o = 0; uint64_t *fp = fp0; uint64_t pcs[10]; int np = 0; pcs[np++] = ra;
+    for (int k = 0; k < 9 && fp; k++) { uint64_t nfp = fp[0], lr = fp[1] & 0x0000ffffffffffffull; if (!lr || nfp <= (uint64_t)fp) break; pcs[np++] = lr; fp = (uint64_t *)nfp; }
+    for (int k = 0; k < np && o < sizeof line - 48; k++) { module_t *m = module_of((void *)pcs[k]); o += snprintf(line + o, sizeof line - o, " %s+%#llx", m ? m->name : "?", m ? (unsigned long long)(pcs[k] - (uint64_t)m->base) : (unsigned long long)pcs[k]); }
+    LOG("[nvn] size trace %dx%d:%s", w, h, line);
+}
+NVN(nvnTextureBuilderSetSize2D, void, NVNtextureBuilder *b, int w, int h) { TB(b)->d.width = w; TB(b)->d.height = h; TB(b)->d.depth = 1;
+    static int on = -1; if (on < 0) on = getenv("DM_NVN_SIZE_TRACE") != NULL; if (on) size_trace(w, h, (uint64_t)__builtin_return_address(0), __builtin_frame_address(1)); }
 NVN(nvnTextureBuilderSetSize3D, void, NVNtextureBuilder *b, int w, int h, int d) { TB(b)->d.width = w; TB(b)->d.height = h; TB(b)->d.depth = d; }
 NVN(nvnTextureBuilderSetSwizzle, void, NVNtextureBuilder *b, NVNtextureSwizzle r, NVNtextureSwizzle g, NVNtextureSwizzle bl, NVNtextureSwizzle a) {
     tex_builder_t *o = (tex_builder_t *)b; o->set_swz = 1; o->swz = (uint16_t)((r & 7) | (g & 7) << 3 | (bl & 7) << 6 | (a & 7) << 9);
@@ -2875,7 +2907,7 @@ static void rec_downsample(NVNcommandBuffer *c, const NVNtexture *s, const NVNte
     p_copy_t2t *o = REC_SNAP(c, OP_COPY_T2T, p_copy_t2t, 2);
     o->src = tex_snap(o, SNAP_OFF(p_copy_t2t), 0, s, ra); o->dst = tex_snap(o, SNAP_OFF(p_copy_t2t), 1, d, ra);
     copy_view(&o->sv, &o->has_sv, sv); copy_view(&o->dv, &o->has_dv, dv);
-    if (o->dst) mtl_pool_gpu_written(o->dst->pool);
+    if (o->dst) mtl_tex_gpu_written(o->dst);
     if (o->src) o->sr = (NVNcopyRegion){0, 0, 0, (int)o->src->d.width, (int)o->src->d.height, 1};
     if (o->dst) o->dr = (NVNcopyRegion){0, 0, 0, (int)o->dst->d.width, (int)o->dst->d.height, 1};
     o->flags = DM_COPY_RESOLVE;

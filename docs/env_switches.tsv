@@ -109,6 +109,7 @@ DM_NICK	switch	The account nickname the game sees (default `Player`)
 DM_NRO	switch	`0` turns off loading of the NRO modules the game's NRR files register (on by default): every `nn::ro::LoadModule` then fails
 DM_NRO_CAPTURE	diagnostic	folder: a `nn::ro::LoadModule` with no rewritten copy writes the image to `<folder>/<SHA-256>.nro` and ends the run (the NSP script's capture of an NRO the game decodes at run time)
 DM_NRO_DIR	path	folder of NROs the shader split reads like `main`, and in which it finds a CRA archive's file table (the NSP script sets it for a captured NRO)
+DM_NVN_ALIAS_RETIRE	switch	`0` keeps shared textures until their storage is taken over or their pool goes, as before; by default, while the residency set holds more than 85 % of the working set, shared textures no live texture object has resolved to in 64 submissions are retired, the longest idle first, down to 75 % (`alias_retire_idle`)
 DM_NVN_ALLOCPROF	diagnostic	`=1` charges Metal allocation growth to each replayed op type and function, and logs command allocator sizes and each new texture (serial, size, format, storage)
 DM_NVN_API	switch	`=<major>.<minor>` overrides the NVN API version `nvnDeviceGetInteger` reports (by default decided by the SDK version or the profile's `device_api`: 55.15 for SDK 11 and later, 53.313 before)
 DM_NVN_BARRIER	switch	How draw passes are ordered: `full` (default) waits for all earlier GPU work, `game` only for the previous pass's fragment stage unless the game set a barrier, `ab` alternates with the `DM_AB` phases
@@ -151,7 +152,9 @@ DM_NVN_GEO_HOIST	switch	`0` draws each geometry draw's capture and kernel at its
 DM_NVN_GEO_LEAN	switch	`0` draws passthrough geometry shaders through their full kernel and reader, as before; by default a lean kernel culls and the program's own vertex shader draws (`nvn_geometry.inc`)
 DM_NVN_GEO_MESH	switch	`0` draws passthrough geometry pairs that have a mesh library (`geo_mesh.tsv`) through the compute path; by default they are mesh draws in the render pass (`geo_mesh_draw`)
 DM_NVN_GEO_MESH_RUN	switch	`0` dispatches every mesh geometry draw on its own; by default consecutive mesh draws of one pair whose result does not depend on their order are drawn as one dispatch (`geo_mesh_take`)
+DM_NVN_GMEM_ALL	diagnostic	`=1` lists every memory pool in raw global memory's pool table, and so in the residency set, as before; by default a pool the game took no buffer address in (`nvnMemoryPoolGetBufferAddress`, `nvnBufferInitialize`, `nvnTextureGetTextureAddress`) is left out
 DM_NVN_GPUPROF	diagnostic	`=<f>`, `<f1>-<f2>` or `every:<n>`: logs the GPU start and duration of every encoder of those frames (`[gpuprof]` lines from Metal 4 counter heap timestamps)
+DM_NVN_GPUW_RANGE	switch	`0` goes back to counting a whole pool as GPU-written at its first GPU write, so its uncompressed textures stop being taken from storage; by default only the storage ranges the GPU renders, copies, clears, downsamples or image-stores into count ([nvn-objects](reference/nvn-objects.md#uncompressed-storage-the-cpu-wrote-next-to-storage-the-gpu-writes))
 DM_NVN_GPU_TS	switch	`segment` or `submission`: what timestamp reports record (GPU start / end of the segment holding each report, or one time for the whole submission), instead of the profile's `gpu_timestamps`
 DM_NVN_HILITE	diagnostic	`=<fragment shader key>,…`: those draws use a solid colour instead (magenta, green, cyan, yellow, blue, white in order), to tell wrong geometry from wrong shading
 DM_NVN_INDLOG	diagnostic	`=<n>`: the first n indirect draws (and those of pass-dumped frames) log their arguments at encode and as the GPU left them once the submission completed, with the first indices
@@ -166,6 +169,7 @@ DM_NVN_PASSDUMP_ALL	diagnostic	`=1` makes `DM_NVN_PASSDUMP` record every draw an
 DM_NVN_PASSGPU	diagnostic	`=<file>` writes the GPU time of each render and compute pass from stage-boundary timestamp counters (off under Metal 4); also gives each dispatch its own encoder
 DM_NVN_PASSGPU_SERIAL	diagnostic	`=1` makes each encoder on the main command buffer wait until all earlier work has finished, so `DM_NVN_PASSGPU` times read each pass's exclusive time (totals read high)
 DM_NVN_POOL_CHUNKS	switch	`0` wraps a memory pool of 512 MB or more whole in one buffer, as before; by default it is wrapped in overlapping 16 MB chunks made as draws reach them, so only the parts in use are wired
+DM_NVN_POOL_SKIP_RETIRED	switch	`=1` / `=0` overrides the profile's `pool_skip_retired`: a pool table (handles traced to no slot) gives a retired texture ID that holds no view the dummy texture instead of a Metal texture made again from its storage
 DM_NVN_PREDICT	switch	`0` turns off the parallel precompile look-ahead: a pipeline miss compiles only the pipeline it needs
 DM_NVN_PREFETCH	switch	`0` turns off loading a program's shader libraries in the background when the game makes it (`nvnProgramSetShaders`); they load at its first draw instead
 DM_NVN_PROF	diagnostic	`=1` wraps the implemented NVN functions in a timing wrapper and collects the time each takes during recording
@@ -218,6 +222,7 @@ DM_NVN_VSDUMP_FROM	diagnostic	First presented frame eligible for a post-vertex c
 DM_NVN_VSDUMP_KEY	diagnostic	Vertex key to capture, or `*` for all eligible vertex shaders; storage-writing shaders are excluded
 DM_NVN_VSDUMP_MAX	diagnostic	Maximum post-vertex captures (default 1, or 256 for the wildcard key)
 DM_NVN_WAITS	diagnostic	`=1` turns on the wait ledger: every place a host or game thread waits on the CPU for the GPU or the encode thread, counted per frame
+DM_NVN_WS_MB	diagnostic	`=<MB>` replaces Metal's recommended working set in the host's memory budget (shared texture retirement, `restop`): a smaller Mac's budget tried on a larger one (a 16 GB Mac recommends about 10,700 MB)
 DM_NVN_XV	switch	`0` turns off the cross-submission attachment validity ledger, which skips write-backs of colour attachments cleared before their next use (on by default, only with `DM_NVN_TBDR` on)
 DM_NVN_ZBLOCK	diagnostic	`=1` logs (`[zb]`) the all-zero blocks per level of each ASTC texture uploaded on the CPU (magenta when drawn); `=<folder>` also writes the raw storage of the first one per format and size
 DM_NVN_ZSKIP	switch	`0` turns off the zero-source skip, which drops a draw whose fragment shader is proven to write 0 over targets already 0 (on by default, only with `DM_NVN_TBDR` on)
@@ -343,6 +348,9 @@ DM_TEST_SWKBD_LAG_MS	diagnostic	`=<ms>` sleeps that long between the keyboard ha
 DM_TEST_TRANSFORM_FEEDBACK	test	Path to the native t_transform_feedback executable used by the Python feedback tests
 DM_TEST_UP_LEAK	diagnostic	`=1` keeps the old upload staging block instead of retiring it, as before the fix, to measure the leak
 DM_TEST_UP_LOST	diagnostic	`=<batch index>` treats that batch of uploads as dropped, to exercise the re-upload path
+DM_TEX_RELEASE	switch	`1` gives back the guest copy of a texture's storage in a `CPU_NO_ACCESS` pool once its upload (or its creation, for a GPU-only texture) has completed on the GPU: its whole pages become zero pages; `2` also releases still-protected pages of CPU-visible textures uploaded by the tracked path (a later CPU write faults and re-uploads as before); `probe` only counts; off by default ([memory](reference/memory.md#the-guest-copy-of-uploaded-textures-given-back))
+DM_TEX_RELEASE_METHOD	diagnostic	`free` releases with `madvise(MADV_FREE_REUSABLE)` instead of fresh zero pages (`DM_TEX_RELEASE`)
+DM_TEX_REL_DONOR	switch	`0` lets a texture made again over storage `DM_TEX_RELEASE` gave back read its zero pages; by default it is a GPU copy of the texture released there when that one has the same description, still has its host texture and its storage was not written since ([memory](reference/memory.md#the-guest-copy-of-uploaded-textures-given-back))
 DM_THERMAL_CAP	switch	`0` turns off the thermal cap, which holds the frame step at 30 fps while iOS reports a serious or critical thermal state (on by default)
 DM_THR	diagnostic	`=1` logs each SVC (except `SleepThread`) with its first four arguments, and each `CreateThread` with entry, stack, priority and core
 DM_THRCPU	diagnostic	`=<tsv path>[,<seconds>]` writes each thread's CPU time (100% = one core) and the total every interval (default 10 s); on iOS a relative path is under `Documents`
