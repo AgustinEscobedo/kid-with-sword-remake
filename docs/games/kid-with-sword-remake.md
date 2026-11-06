@@ -23,6 +23,16 @@ kid with sword game/
 
 A `.nup` container of the same files works too ([Switch 2 games](../../README.md)).
 
+## Builds
+
+Every iPhone build is numbered; its file is `OcarinaOfTime-V<n>.ipa` (the first two had other names).
+
+| Build | IPA | What changed | Tested |
+|---|---|---|---|
+| V1 | `OcarinaOfTime.ipa`, 26.9 GB, game files inside | The first IPA: the merged fixes, fixed 720p, MetalFX upscaling, texture release level 2, the increased memory limit | iPhone 18 Pro: boots, plays the title and opening movie, then stops right after the opening cutscene |
+| V2 | `OcarinaOfTime-split.ipa`, 2.7 GB, game files copied once | Split IPA; the encode-thread crash after the opening cutscene fixed | Mac: the crash reproduced and fixed. iPhone 18 Pro: plays past the cutscene, but about 38 fps after it, with 0.2-1.3 s freezes when new shader pipelines compile |
+| V3 | `OcarinaOfTime-V3.ipa`, split | Metal 4 pipelines on the iPhone (profile key `pso_mtl4 on`): the pipeline prebuild on the first start and hybrid pipelines, so draws no longer wait for pipeline compiles | Not yet on the iPhone |
+
 ## What you need
 
 - **A Mac with Apple silicon.** Built and tested on a fanless MacBook Air M5 (10-core GPU) with 16 GB. macOS 26.6 or later and Xcode 27.2, as in the [README](../../README.md).
@@ -82,6 +92,7 @@ A `.nup` container of the same files works too ([Switch 2 games](../../README.md
 | `rt_drop` | `off` | Render-target stand-ins saved memory but made objects pop and sway |
 | `rt_alias` | `off` | Render-target heap aliasing: glitches |
 | `gpu_timestamps` | `segment` | Dynamic resolution reads the GPU time between the game's timestamp reports |
+| `pso_mtl4` | `on` | Render pipelines through Metal 4 on the iPhone, as on the Mac: the launcher's pipeline prebuild builds the pipeline bases once on the first start (a wait of a few minutes) and keeps them, and hybrid pipelines draw with a ready base instead of waiting. Without it every first-used pipeline compiled on the submit thread (V2: 0.2-1.3 s freezes at the cutscene transitions). The launcher's **Metal 4 pipelines** setting turns it off. Added in V3 |
 | `upscaler_chain` | (four shader keys) | `DM_UPSCALER=metalfx` replaces the game's NDSR upscale chain with MetalFX |
 
 ## Resolution
@@ -157,7 +168,7 @@ Split (recommended: a 2.7 GB IPA, the game files copied to the phone once):
 
 ```sh
 $PY scripts/build_ipa_from_nsp.py "$G" --work-dir "$B" --env-file ios_env.txt --keep-extracted \
-  --romfs separate -o "$G/OcarinaOfTime-split.ipa"
+  --romfs separate --gpu none -o "$G/OcarinaOfTime-V3.ipa"
 ```
 
 Bundled (one 26.9 GB IPA with the game files inside; some sideloaders cannot take a file this large):
@@ -168,7 +179,7 @@ $PY scripts/build_ipa_from_nsp.py "$G" --work-dir "$B" --env-file ios_env.txt --
 
 Both are unsigned and ad-hoc signed with the app's entitlements, including `com.apple.developer.kernel.increased-memory-limit`; the sideloader re-signs them. Bundle ID `org.nxnative.0400486024dec000`, minimum iOS 26.0. The iPhone shaders are built once and reused; a repeat build took 2.5 minutes (split) to 8 minutes (bundled), mostly packing.
 
-The IPA has no icon (a dump folder has no control data) and no pipeline archive, so the first start on the phone builds its pipelines (`--gpu g18p` builds one for the A19 / A19 Pro). The frame-rate counter is on; `DM_SHOW_FPS=0` in the app's `Documents/env.txt` turns it off.
+The IPA has no icon (a dump folder has no control data). `--gpu none` leaves out the pipeline archive made offline, because the architecture name of the iPhone 18 Pro's GPU is not known here (`--gpu g18p` would build one for the A19 / A19 Pro); with `pso_mtl4 on` the phone builds the pipeline bases itself on the first start and keeps them. Turning Metal 4 on also makes the iPhone shader stage compile the pulling libraries the hybrid pipelines need, so the first build after it recompiles the iPhone shaders (about 14 minutes on the MacBook Air M5). The frame-rate counter is on; `DM_SHOW_FPS=0` in the app's `Documents/env.txt` turns it off.
 
 ### 5. Installing on the iPhone
 
@@ -202,11 +213,13 @@ All on the v1 dump (v131072). Mac runs were capped by a memory guard (the game k
 | First iPhone run (bundled IPA, LiveContainer) | iPhone 18 Pro | Boots; title and opening movie mostly at 60 fps (p99 16.67 ms), footprint about 2 GB at the title; then stopped at frame 9911, right after the opening cutscene (`FATAL deferred encoding: DmRecEnc has no stand-in for -drawMeshThreadgroupsWithIndirectBuffer:…`) |
 | The crash reproduced on the Mac | Mac, `DM_NVN_ENC_THREAD=1`, the old host | Same `FATAL` line |
 | The fix | Mac, `DM_NVN_ENC_THREAD=1 DM_GUEST_FILE=1`, 150 s | No error past the same point |
+| V2 on the iPhone | iPhone 18 Pro, LiveContainer, about 2,400 frames | No crash. Before the cutscene 60 fps; after it frame p50 19-26 ms (about 38 fps), GPU p50 15-22 ms rising as the phone warmed, the submit thread 9-15 ms of CPU a frame. Every long frame (0.2-1.3 s) was a pipeline compile (fixed in V3) or an area load (610 MB of textures). The share of CPU time on performance cores fell from about 50% to 0% during the run; the phone reported thermal state 1 from the start |
 | Mac play test with the fix | Mac, 73 s until the window was closed | No crash; frame p50 16.5-17.9 ms, a few 90-127 ms loading hitches; peak footprint 7.4 GB |
 
 ## Known issues and open work
 
-- **The split IPA with the crash fix is not yet tested on the iPhone.**
+- **V3 is not yet tested on the iPhone.**
+- **iPhone frame rate:** V2 ran at about 38 fps after the opening cutscene. The GPU needs 15-22 ms a frame at 720p, at or over the 16.7 ms of 60 fps, and iOS moved the game onto the efficiency cores as the run went on (about 1.5 GHz). Run inside LiveContainer, the app's own Game Mode and games category (`LSSupportsGameMode`, `LSApplicationCategoryType`) probably do not apply; a direct install, a cool phone and the Performance HUD off are the next things to measure. A frame-rate setting (30 / 60) with a correctly paced, full-speed 30 fps mode is planned for V4.
 - **Frame rate:** mostly 60 fps on the MacBook Air M5, with dips outdoors (GPU 13-19 ms a frame). The game steps its logic once per frame, so a 30 fps cap alone runs it at half speed. A correct 30 fps mode needs the game's own frame-rate controller (in `main`, at `main+0x3b4ef60`: it picks a vsync interval clamped to a config range, sets fps = 60 / interval and calls the framework's `setInterval` at `main+0x346c5c0`, which reaches `nvnWindowSetPresentInterval`) forced to interval 2. Not done; neither is the 30 / 60 setting in the launcher.
 - **Two stalls of about 0.9 s** in a Mac play test, on the game's side (the submit time was small). Not investigated.
 - **Texture release level 2:** if the game read back a released texture on the CPU, it would read zeros. Not seen in testing.
