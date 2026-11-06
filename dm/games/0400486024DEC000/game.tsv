@@ -76,6 +76,8 @@ fps_target	60
 # The iPhone's touch gamepad starts in the full (3D) layout: the D-pad, L3 / R3 and the right stick, which turns the camera (a drag in the right third of the screen); the simple
 # layout has no right stick. A layout the player switches to in the game menu is kept
 pad_layout	full
+# The touch controls' Forest colours: blue A, green B, yellow X / Y, red +, deep green shoulders, bronze D-pad, gold rims, all translucent (DmGamepad.m theme_init)
+pad_theme	forest
 # Dynamic resolution reads the GPU time between the frame's timestamp reports, as on Donkey Kong Bananza and Breath of the Wild (the same EPD engine family): with one time a submission it
 # read about 0 and kept the full 1440x810 at 20-24 ms of GPU a frame on a MacBook Air M5. Each report takes its segment's GPU start / end (nvn_mtl.m rep_ticks)
 gpu_timestamps	segment
