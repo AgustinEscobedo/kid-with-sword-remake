@@ -34,6 +34,7 @@ Every iPhone build is numbered; its file is `OcarinaOfTime-V<n>.ipa` (the first 
 | V3 | `OcarinaOfTime-V3.ipa`, 3.0 GB, split | Metal 4 pipelines on the iPhone (profile key `pso_mtl4 on`): the pipeline prebuild on the first start and hybrid pipelines, so draws no longer wait for pipeline compiles | iPhone 18 Pro: fewer stutters, up to about 40 fps. The first start prepares about 30,500 pipelines once |
 | V4 | `OcarinaOfTime-V4.ipa`, split | A **Frame rate** setting (30 / 60) in the launcher, through a frame step patch of the game's own frame-rate controller: 30 fps holds every frame 33.3 ms at full game speed. The touch gamepad starts in the 3D layout, whose right stick turns the camera | Mac: 30 and 60 both run, no crash, 30 fps frame time p50 33.3 / p95 34-36 ms. Not yet on the iPhone |
 | V5 | `OcarinaOfTime-V5.ipa`, 3.0 GB, split | The launcher's **Console mode** picks the resolution: handheld 1280 × 720, docked 1951 × 1098 (the game's nearest size to 1080p; see [Resolution](#resolution)). The black world with the MetalFX upscaler at other resolutions fixed | Mac: both modes render at those sizes, no crash. Not yet on the iPhone |
+| V6 | `OcarinaOfTime-V6.ipa`, 3.2 GB, split | Upstream and fork performance work (see [Where the code comes from](#where-the-code-comes-from)): draws that write depth no longer end render passes, raw-memory lookups start from the entry they chose last, back-to-back compute dispatches run side by side, fewer render-pass splits for grass; crash fixes (the ocarina, iOS 26.0 with Metal 4, later areas' memory maps); a fixed frame rate (the launcher's 30 or 60, no automatic step to 30, no heat cap) | Mac (MacBook Air M5, 720p handheld, Kokiri Forest): GPU p50 18-19 → 13.6-16 ms, frame p50 16.6-17.0 ms, 0 dropped frames in 4 of 5 windows. Not yet on the iPhone |
 
 ## What you need
 
@@ -63,6 +64,23 @@ Every iPhone build is numbered; its file is `OcarinaOfTime-V<n>.ipa` (the first 
    | [#1439](https://github.com/seedds/nxnative/pull/1439) | A storage takeover checks the live texture objects in one lookup |
    | [#1455](https://github.com/seedds/nxnative/pull/1455) | Shared textures no live object resolves to are retired when GPU memory runs short (the freeze after the talk with Saria) |
    | [#1393](https://github.com/seedds/nxnative/pull/1393) | Profile key `pool_skip_retired`: a finalized texture's ID gets the dummy instead of its texture made again (out of GPU memory at a scene change) |
+
+   Since V6, also from upstream and from the Ocarina of Time fork **[The Mighty Green Kokiri Kid](https://github.com/Aznracer/Mighty-Green-Kokiri-Kid)**, which shares this tree's pool-table layout:
+
+   | Change | Source | Effect |
+   |---|---|---|
+   | A pool draw that writes depth no longer counts as reading it | [#1430](https://github.com/seedds/nxnative/pull/1430) (via the fork, `5cb7d718`) | Render passes stay open: load-all store-all passes 132 → 66-69 a frame. The largest GPU saving here |
+   | Raw global memory lookups start from the entry they chose last | upstream `0f510fd5` ([#1464](https://github.com/seedds/nxnative/pull/1464)), merged by hand into this tree's table layout | About 2 ms of GPU a frame (upstream's measurement); translator rebuilt, chain `a093642c4546` |
+   | The game's compute dispatches with no barrier between them run side by side | fork `5208584a` (profile key `dispatch_overlap on`) | About 2 ms docked (the fork's measurement) |
+   | Indirect draw conversions survive writes that hold none of their records | fork `64a114a5` | Grass splits 2 render passes a frame, not 6 |
+   | Compute pipelines from the pipeline archives | [#1522](https://github.com/seedds/nxnative/pull/1522) | No compile at an effect's first dispatch |
+   | Shader-code pools no longer resident | [#1484](https://github.com/seedds/nxnative/pull/1484) | 334 MB less GPU memory |
+   | The ocarina's input stream | [#1527](https://github.com/seedds/nxnative/pull/1527) | No crash at the first note (Door of Time) |
+   | The Metal 4 specialization descriptor owned once | upstream `88c7e03f` | No crash before the first frame on iOS 26.0 |
+   | Damaged RomFS files served as a substitute | [#1530](https://github.com/seedds/nxnative/pull/1530) | For dumps with three damaged textures (this one has none) |
+   | `mem_map_limit on` | fork `9f6ad246` | No crash entering Hyrule Castle, Kakariko Village and Death Mountain (reported in #1444) |
+
+   Not taken: [#1468](https://github.com/seedds/nxnative/pull/1468) (needs upstream main's submission timing), the fork's raw-load quads (about 0.4 ms, another translator change). Upstream main itself was not merged: its Ocarina of Time profile is another line (docked by default, other shader groups, no texture release or MetalFX chain), so the changes above were taken one by one.
 
    Not merged: [#1427](https://github.com/seedds/nxnative/pull/1427) (needs `main`'s newer write-log code), [#1405](https://github.com/seedds/nxnative/pull/1405) (shared raw-memory lookups), [#1453](https://github.com/seedds/nxnative/pull/1453) (render-target placement heap) and the frame-pacing parts of [#1444](https://github.com/seedds/nxnative/pull/1444).
 
@@ -98,6 +116,8 @@ Every iPhone build is numbered; its file is `OcarinaOfTime-V<n>.ipa` (the first 
 | `rt_alias` | `off` | Render-target heap aliasing: glitches |
 | `gpu_timestamps` | `segment` | Dynamic resolution reads the GPU time between the game's timestamp reports |
 | `pso_mtl4` | `on` | Render pipelines through Metal 4 on the iPhone, as on the Mac: the launcher's pipeline prebuild builds the pipeline bases once on the first start (a wait of a few minutes) and keeps them, and hybrid pipelines draw with a ready base instead of waiting. Without it every first-used pipeline compiled on the submit thread (V2: 0.2-1.3 s freezes at the cutscene transitions). The launcher's **Metal 4 pipelines** setting turns it off. Added in V3 |
+| `dispatch_overlap` | `on` | Back-to-back compute dispatches run side by side. Added in V6 |
+| `mem_map_limit` | `on` | A map past the application pool fails as on Horizon; without it the game crashes entering some later areas. Added in V6 |
 | `fps_target` | `60` | Turns on the frame step and the launcher's **Frame rate** setting (30 / 60, default 60). Added in V4; see [Frame rate](#frame-rate) |
 | `pad_layout` | `full` | The iPhone's touch gamepad starts in the 3D layout: D-pad, L3 / R3, and a right stick that is not drawn (a drag in the right third of the screen) for the camera. The simple layout has no right stick. A layout picked in the game menu (the gear at the top centre) is kept. Added in V4 |
 | `upscaler_chain` | (four shader keys) | `DM_UPSCALER=metalfx` replaces the game's NDSR upscale chain with MetalFX |
@@ -136,6 +156,8 @@ V4's frame step (`patches.py` `FRAME_STEP`, `patch_nso.py` "Frame step in whole 
 
 - **60:** one vsync a frame; a late frame is held two vsyncs and the game steps two for it, so game time follows real time.
 - **30:** two vsyncs (33.3 ms) a frame. After a hitch (an area load) the host holds a few frames three vsyncs to catch up (10 times in 55 s on the Mac, around loading).
+
+Since V6 the frame rate is fixed: the app's settings file has `DM_FPS_HOLD=off`, so the launcher's 60 holds every frame one vsync and 30 two, never longer, and `DM_THERMAL_CAP=0`. A late frame at 60 is shown late rather than held, and the game steps by the vsyncs that passed, so game speed stays right: the Mac measured `game time 33.25 s in 33.28 s (0.999 of real time)` with every frame held one vsync.
 
 Two host caps come with the frame step: on the iPhone, while iOS reports the thermal state "serious" the host holds 30 fps until it has been "fair" for 30 s (`DM_THERMAL_CAP=0` turns this off); and while a pre-rendered movie plays the host holds 30 fps (`hle_nvn.c` `fps_step_cap`). The game's movies are 1920 × 1080 AV1; whether they keep their speed under that cap is not yet measured.
 
@@ -182,11 +204,14 @@ venv/bin/python scripts/oot_res_overlay.py "$V/RomFS.img" "$V/romfs_overlay/dock
 An environment file baked into the app as `dm/env.txt` (one `KEY=VALUE` per line):
 
 ```
-# baked into the iPhone app (dm/env.txt): the settings the Mac play tests ran with
+# baked into the iPhone app (dm/env.txt)
 DM_UPSCALER=metalfx
+# fixed frame rate: the launcher's Frame rate is used as set (60 = one vsync a frame, 30 = two), no automatic step to 30 on late frames and no heat cap
+DM_FPS_HOLD=off
+DM_THERMAL_CAP=0
 ```
 
-Saved here as `ios_env.txt` in a work folder.
+Saved here as `ios_env.txt` in a work folder. The Mac app takes its own, `mac_env.txt`: the same `DM_UPSCALER` and `DM_FPS_HOLD` lines and `DM_ALIAS_SIZE=0x200000000` (see [Known issues](#known-issues-and-open-work)).
 
 ### 4. The iPhone IPA
 
@@ -194,7 +219,7 @@ Split (recommended: a 2.7 GB IPA, the game files copied to the phone once):
 
 ```sh
 $PY scripts/build_ipa_from_nsp.py "$G" --work-dir "$B" --env-file ios_env.txt --keep-extracted \
-  --romfs separate --gpu none -o "$G/OcarinaOfTime-V5.ipa"
+  --romfs separate --gpu none -o "$G/OcarinaOfTime-V6.ipa"
 ```
 
 Bundled (one 26.9 GB IPA with the game files inside; some sideloaders cannot take a file this large):
@@ -220,7 +245,7 @@ The IPA has no icon (a dump folder has no control data). `--gpu none` leaves out
 ### 6. The Mac app with the launcher
 
 ```sh
-$PY scripts/build_ipa_from_nsp.py "$G" --platform mac-app --work-dir "$B" --env-file ios_env.txt --keep-extracted \
+$PY scripts/build_ipa_from_nsp.py "$G" --platform mac-app --work-dir "$B" --env-file mac_env.txt --keep-extracted \
   -o "$G/Ocarina of Time.app"
 ```
 
@@ -246,13 +271,17 @@ All on the v1 dump (v131072). Mac runs were capped by a memory guard (the game k
 | Mac at 720p, same save, standing still: the 15:21 host against the current one | MacBook Air M5, 130 s each | The same speed (GPU 20-23 ms right after entering gameplay, settling to 17-19 ms): no regression. The Mac was slower than in the afternoon's runs after about 1.5 hours of shader builds (likely heat; no thermal warning recorded) |
 | MetalFX upscaler at the game's own 1440 × 810 (another player's Mac app, reproduced here) | Mac, frame dumps (`DM_NVN_TEXDUMP`) | Before: the scene drew at 1440 × 810, the final 1920 × 1080 picture was black but for the HUD. After the fix: the world draws; at 720p MetalFX still draws the last stage |
 | V5 console modes | Mac, 720p handheld and docked at several scales, 80-100 s each | Handheld 1280 × 720, docked 1951 × 1098 at 0.9375, the mode's file served (`fs rom overlay: … for the docked mode`), no crash. With the Mac hot (GPU 19-20 ms) the 60 fps setting held a steady 30 (two vsyncs a frame) in both modes |
+| V6 on the Mac, same scene, before and after the fork's GPU changes | MacBook Air M5, 720p handheld, MetalFX, fixed 60, 150 s each | GPU p50 17.9-19.0 → 13.6-16.1 ms; frame p50 31-35 → 16.6-17.0 ms; load-all store-all passes 132 → 66-69; on screen 0 dropped frames in 4 of 5 windows (the fifth: the 0.8 s area load) |
 | V4 frame step, 60 fps | Mac, 720p, 150 s | No crash. Kokiri Forest frame p50 16.6 ms, p95 18.5-21 ms, GPU 14 ms; late frames held two vsyncs (73 times) |
 | V4 frame step, 30 fps | Mac, 720p, 55 s | No crash. Frame p50 33.3 ms, p95 34-36 ms; 10 frames held three vsyncs around loading |
 
 
 ## Known issues and open work
 
-- **V4 and V5 are not yet tested on the iPhone**, and the 30 fps game speed is not yet measured (see [Frame rate](#frame-rate)).
+- **V4, V5 and V6 are not yet tested on the iPhone.**
+- **A busy game thread:** `OptimizeChangeBanc` uses a whole core in most runs, on the Mac and the iPhone, with an intact dump (all 102,185 `.zs` files are zstd streams, so #1530 does not apply). It depends on timing: with `DM_FS=1` file logging it went idle. Not solved.
+- **The iPhone's alias region:** the Mac runs take 8 GB (`DM_ALIAS_SIZE=0x200000000`) because the fork measured an abort after 5-15 minutes outdoors with 2.38 GB; the iPhone keeps 2.38 GB until a larger reservation is checked on a phone. To try it, put `DM_ALIAS_SIZE=0x200000000` in the app's `Documents/env.txt`.
+- **Build order:** an iPhone build and a Mac build share the shader cache; after an iPhone build, run the Mac build again (`--platform mac`, about 10 minutes from the cache) before playing on the Mac, and never run the game while a build is running, and the 30 fps game speed is not yet measured (see [Frame rate](#frame-rate)).
 - **iPhone frame rate:** V2 ran at about 38 fps after the opening cutscene. The GPU needs 15-22 ms a frame at 720p, at or over the 16.7 ms of 60 fps, and iOS moved the game onto the efficiency cores as the run went on (about 1.5 GHz). Run inside LiveContainer, the app's own Game Mode and games category (`LSSupportsGameMode`, `LSApplicationCategoryType`) probably do not apply; a direct install, a cool phone and the Performance HUD off are the next things to measure. V3 reached about 40 fps at best. V4's 30 fps setting gives a steady alternative.
 - **Mac frame rate:** mostly 60 fps at 720p on the MacBook Air M5, with dips outdoors (GPU 13-19 ms a frame), more when the Mac is hot. Without the 720p file the game renders up to 1440 × 810 and Kokiri Forest runs at 43-52 fps.
 - **Two stalls of about 0.9 s** in a Mac play test, on the game's side (the submit time was small). Not investigated.
