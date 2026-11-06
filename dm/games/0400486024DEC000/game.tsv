@@ -28,11 +28,13 @@ romfs_substitute	Tex/CmnTex_Map_Soil_FairyFountain_Floor_D_Nrm.bntx.zs=Tex/Dummy
 
 # ---- Memory ----
 # The NPDM declares 48 MiB of system resources. Startup requests a 6.20 GiB heap.
-mem_reserve	0x300000000
-mem_alias	0x98000000
-# The alias region holds the game's streaming allocator (main+0x7ed630). The Mighty Green Kokiri Kid fork measured up to +4.95 GB of address regions in Kokiri Forest, and with this
-# 2.38 GB region VammManager::AllocateAddressRegion failed after 5-15 minutes outdoors (nn::diag abort). The Mac runs take an 8 GB region (DM_ALIAS_SIZE=0x200000000 in the run
-# command and the Mac app's env.txt); the iPhone keeps 2.38 GB until a larger reservation is checked on a phone (DM_ALIAS_SIZE in Documents/env.txt)
+# The alias region holds the game's streaming allocator (main+0x7ed630): in Kokiri Forest it maps up to +4.5-4.75 GB of address regions (an 8 GB region, Mac runs v6c, spin1).
+# With 2.38 GB (0x98000000) the allocator stops at +2.26 GB: the loader retries what does not fit, so the OptimizeChangeBanc thread (main+0xf7a0, a sead::Thread whose pass sleeps 16 ms
+# only when all is loaded) spins a whole core (997 ms/s, process CPU 308% against 168%, same host, Mac run alias238; every iPhone run), and after 5-15 minutes outdoors
+# VammManager::AllocateAddressRegion fails and the game aborts (the Mighty Green Kokiri Kid fork). 8 GB as in that fork; the reserve grows by the same 5.6 GB so the heap keeps its size.
+# The iPhone 18 Pro already reserved 12 GB plus 12 GB of guest files; DM_ALIAS_SIZE=0x98000000 in Documents/env.txt goes back to the small region
+mem_reserve	0x468000000
+mem_alias	0x200000000
 # A map that would take the process past the application pool fails with ResultLimitReached, as on Horizon: the SDK's allocator keeps freed pages mapped until a map fails,
 # then gives them back. Without it PR #1444 reports crashes entering Hyrule Castle, Kakariko Village and Death Mountain and a black screen leaving the Deku Tree
 mem_map_limit	on
