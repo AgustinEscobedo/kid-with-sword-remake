@@ -12397,6 +12397,13 @@ static void dispatch(const p_dispatch *dp) {
             if (g_up_chain_in && !dp->ind && up_mfx_encode(cs)) { g_up_chain_in = 0; return; }
             if (g_up_chain_in) { g_up_chain_refused = 1; MLOG("[RED] upscaler chain: MetalFX refused the last stage %s; the game's chain runs from the next frame on", cs->key); }
             g_up_chain_in = 0;
+        }
+        // A chain whose first stages were skipped for MetalFX but that ends at another upscaler than the profile's last stage: that stage would read the skipped stages'
+        // outputs, so the picture comes out black (Ocarina of Time at its own 1440x810: the chain ends at b106afba1a18faa9, not aad7ea7e5c02f41d; at a fixed 720p it ends at the listed
+        // stage). The game's whole chain runs from the next frame on; this frame's picture is lost once
+        if (!role && g_up_chain_in && up_mfx_named(cs)) {
+            g_up_chain_refused = 1; g_up_chain_in = 0;
+            MLOG("[RED] upscaler chain: it ended at %s, not at the profile's last stage, after its first stages were skipped; the game's chain runs from the next frame on", cs->key);
         } }
     if (up_mfx_wanted(cs) && !dp->ind && up_mfx_encode(cs)) return;   // the game's upscaler, drawn by MetalFX instead (DM_UPSCALER=metalfx)
     int own = dispatch_own();
