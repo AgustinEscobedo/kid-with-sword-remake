@@ -2083,6 +2083,7 @@ static uint64_t g_alias_taken;   // shared textures evicted when another texture
 static nvn_hmap g_ghost;   // defined below (finalized texture serials)
 static nvn_hmap g_ghost_active = {.klen = 8};   // finalized serials touched in the submission being encoded, under g_smu
 static int serial_holds(nvn_hmap *m, id o) { for (uint32_t i = 0; i < m->cap; i++) if (m->vals[i] == (__bridge void *)o) return 1; return 0; }
+static int pool_skip_retired(void);
 static void alias_take_over(const alias_key *nk) {
     nvn_texlayout L; nvn_tex_layout(&nk->d, &L);
     if (!L.size) return;
@@ -2110,7 +2111,9 @@ static void alias_take_over(const alias_key *nk) {
         nvn_hm_del(&g_alias_born, &ks[j]);
     }
     free(ks);
-    if (n) { g_ser_gen++; g_alias_taken += n; }
+    // A takeover changes no live serial's texture. With pool_skip_retired a retired ID's entry is the dummy, so no pool table entry names what was let go and the note names no
+    // texture: a table built before is kept or patched for its other changes (oot2 054538f8: about 3 whole builds a frame of the 33,025-entry table in Hyrule Castle Town)
+    if (n) { if (pool_skip_retired()) ser_note(0); else g_ser_gen++; g_alias_taken += n; }
 }
 // The same takeover later (alias_retake, every ALIAS_RETAKE submissions, submit thread): an entry a newer entry of the same pool overlaps became idle after that one was made, so the
 // takeover at its making spared it (looked up lately). Ocarina of Time's frame graph moves its transient targets through one virtual pool every frame: 1,973 entries 4 s after the
