@@ -1462,7 +1462,7 @@ static __thread int t_fwg_joined; static __thread os_workgroup_join_token_s t_fw
 static uint64_t g_fwg_joins, g_fwg_fail;
 static int fwg_get(void) {
     if (g_fwg_state) return g_fwg_state > 0;
-    const char *e = getenv("DM_FRAME_WG"); if (!(e && atoi(e))) { g_fwg_state = -1; return 0; }   // off unless asked for (launcher: Deadline boost)
+    const char *e = getenv("DM_FRAME_WG"); if (!(e ? atoi(e) : DM_GAME_FRAME_WG)) { g_fwg_state = -1; return 0; }   // the launcher's Deadline boost, else the profile's frame_wg (off unless it says on)
     void *h = dlopen("/System/Library/Frameworks/AudioToolbox.framework/AudioToolbox", RTLD_LAZY);
     os_workgroup_interval_t (*mk)(const char *, os_clockid_t, os_workgroup_attr_t) = h ? (os_workgroup_interval_t (*)(const char *, os_clockid_t, os_workgroup_attr_t))dlsym(h, "AudioWorkIntervalCreate") : NULL;
     g_fwg = mk ? mk("nxnative frame", OS_CLOCK_MACH_ABSOLUTE_TIME, NULL) : NULL;

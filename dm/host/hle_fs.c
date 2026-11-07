@@ -191,9 +191,13 @@ __attribute__((weak)) int dm_opmode(void) { return 0; }   // hle_oe.c's (the con
 static void rom_overlay_set(char *dst, size_t n, const char *env) {
     char *roots = strdup(env); if (!roots) die("rom overlay allocation failed");
     const char *mode = dm_opmode() == 1 ? "docked" : "handheld"; char *save = NULL; dst[0] = 0;
+    // DM_RES_PRESET=1 (the launcher's Resolution: Potato): potato-<mode>/ in place of <mode>/ where a folder has it (Ocarina of Time: 0.6 of the base, 1152x648 handheld,
+    // 1536x864 docked, against 1280x720 and 1951x1098), for a steadier frame rate on a hot phone; 0 (Normal, the default) or a folder without it keeps <mode>/
+    const char *pe = getenv("DM_RES_PRESET"); int potato = pe && (atoi(pe) == 1 || !strcmp(pe, "potato"));
     for (char *root = strtok_r(roots, ":", &save); root; root = strtok_r(NULL, ":", &save)) {
-        char sub[1100]; struct stat st; snprintf(sub, sizeof sub, "%s/%s", root, mode);
-        if (!stat(sub, &st) && S_ISDIR(st.st_mode)) { if (dst[0]) strlcat(dst, ":", n); strlcat(dst, sub, n); LOG("fs rom overlay: %s for the %s mode", sub, mode); }
+        char sub[1100]; struct stat st; snprintf(sub, sizeof sub, "%s/potato-%s", root, mode);
+        if (!potato || stat(sub, &st) || !S_ISDIR(st.st_mode)) snprintf(sub, sizeof sub, "%s/%s", root, mode);
+        if (!stat(sub, &st) && S_ISDIR(st.st_mode)) { if (dst[0]) strlcat(dst, ":", n); strlcat(dst, sub, n); LOG("fs rom overlay: %s for the %s mode%s", sub, mode, potato ? " (resolution preset Potato)" : ""); }
         if (dst[0]) strlcat(dst, ":", n); strlcat(dst, root, n);
     }
     free(roots);
