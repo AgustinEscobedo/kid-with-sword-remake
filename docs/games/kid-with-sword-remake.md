@@ -102,6 +102,10 @@ Every iPhone build is numbered; its file is `OcarinaOfTime-V<n>.ipa` (the first 
 | 30 / 60 fps frame step | `dm/games/0400486024DEC000/patches.py` (`FRAME_STEP`), `game.tsv` (`fps_target 60`) | The game's frame-rate controller picks its interval and fps from the host's step, so the launcher's Frame rate setting works and 30 fps runs at full speed. See [Frame rate](#frame-rate) |
 | Resolution by console mode | `dm/host/hle_fs.c` (`rom_overlay_set`) | An overlay folder's `handheld/` or `docked/` subfolder comes first for the console mode at start, so the launcher's Console mode switches between 720p and 1080p. Added in V5 |
 | Resolution tool | `scripts/oot_res_overlay.py` | Writes the modified resolution table (below) |
+| The Native touch layout (since V12) | `dm/ios/Sources/DmGamepad.m`, `dm/ios/Sources/GameMenu.swift`, `dm/games/game.py` (`pad_layout native`) | A mobile-game layout in very transparent glass with icon keys and letter chips, a floating left stick and the camera on the right half; see [Touch controls](#touch-controls) |
+| The Forest touch theme (since V8) | `dm/ios/Sources/DmGamepad.m` (`theme_init`), `dm/games/settings.tsv` (`DM_PAD_THEME`), `dm/games/game.py` (`pad_theme`) | Per-key colours for the 2D, 3D and Tap layouts; see [Touch controls](#themes-for-the-other-layouts) |
+| Resolution presets (since V13) | `dm/host/hle_fs.c` (`rom_overlay_set`, `DM_RES_PRESET`), `dm/games/settings.tsv`, `dm/games/game.py` (`res_presets`) | The launcher's Resolution: Normal (`<mode>/`) or Potato (`potato-<mode>/`, 0.6 of the base) |
+| The upscaler chain ends at any of the game's networks (since V13) | `dm/gfx/nvn/nvn_mtl.m` (`up_chain_role`), `dm/games/game.py` (`upscaler_chain` `><last>|<last>`) | The game picks its NDSR network by scale; with one known ending, sizes other than 720p fell back to the game's heavier upscaler |
 | iPhone crash after the opening cutscene fixed | `dm/gfx/nvn/nvn_rec.h` | The iPhone records Metal commands on a separate thread (`DM_NVN_ENC_THREAD`, on by default on iOS); its recorder had no stand-in for `drawMeshThreadgroupsWithIndirectBuffer:…`, the indirect task / mesh draw the game first issues after the opening cutscene, so the app stopped (`FATAL deferred encoding`). The draw is now recorded (`RO_R_MESH_IND`) and replayed |
 | iOS SDK build fix | `dm/host/hle_svc.c` | `#include <mach/mach_vm.h>` removed: the iOS SDK rejects it (`vm_remap` comes from `mach/mach.h`) |
 | Per-dispatch compute timings | `dm/gfx/nvn/nvn_mtl.m` (`DM_NVN_GPUPROF_CS`) | Diagnostics: GPU time of each compute shader, summed by shader key |
@@ -169,6 +173,48 @@ Since V6 the frame rate is fixed: the app's settings file has `DM_FPS_HOLD=off`,
 Two host caps come with the frame step: on the iPhone, while iOS reports the thermal state "serious" the host holds 30 fps until it has been "fair" for 30 s (`DM_THERMAL_CAP=0` turns this off); and while a pre-rendered movie plays the host holds 30 fps (`hle_nvn.c` `fps_step_cap`). The game's movies are 1920 × 1080 AV1; whether they keep their speed under that cap is not yet measured.
 
 Not yet checked: game speed at 30 fps by the host's measurement (logged after 60 s of frames: `frame step: game time … of real time`). Some AI code reads a fixed 1/60 s base time step (`QueryGetBaseDeltaTime`, a constant read from 252 places); if it does not scale with the step, characters would move at half speed at 30 fps. A short look on the Mac showed nothing wrong.
+
+## Touch controls
+
+This fork has its own touch controls for the iPhone, designed for this game: a layout that looks like a mobile game's rather than an emulator's, and a colour theme. Nothing in them is the game's artwork; the icons are Apple's SF Symbols and one drawn sword.
+
+### The Native layout (the default since V12)
+
+Very transparent "liquid glass" keys over the picture. Each key shows what it does as an icon, with the controller letter the game's own prompts use in a small chip at its lower right: a **round chip** for face buttons and **+ / −**, a **square chip** for shoulder buttons, so a shoulder never reads as a face button. Icons describe the usual use and stay general, since a button does more than one thing (A is not only "Talk").
+
+| Key | Icon | Chip | Place |
+|---|---|---|---|
+| B | a sword | round **B** | bottom right, the largest key |
+| A | a tap | round **A** | left of B |
+| R | a shield | square **R** | above A |
+| ZL | a target | square **ZL** | above B, toward the middle |
+| X | a bag | round **X** | right edge, above B |
+| Y | a grid | round **Y** | right edge, above X |
+| + | a menu (three lines) | round **+** | top left |
+| − | a map | round **−** | top right |
+| (menu) | … | | top right, left of −: the in-game menu (layout, theme, live settings) |
+
+- **Left stick:** floating. A thumb anywhere on the left half holds it, centred where it lands, or on the drawn ring when it lands on it. The knob follows the thumb inside the ring. There is no label under it.
+- **Camera (right stick):** any drag on the right half that does not land on a key. It is not drawn.
+- **Pressed:** the key turns a light blue and grows a little. With **Touch feedback** on, each press gives a light tap.
+- **How it is drawn:** each key is a glass disc built from shape and gradient layers: a nearly clear base, a soft light from the top, a rim brighter at the upper left, a small highlight near the top. There is no live blur, which would sample the picture every frame, so the controls cost the GPU nothing over the game.
+- **Placement:** measured on an 874 × 402 point landscape screen (iPhone 18 Pro) and scaled to the screen. The bottom corners reach halfway into the side safe area, which keeps the right-edge keys clear of the Dynamic Island.
+- **Not in this layout:** the D-pad, L, ZR, L3 and R3. The **3D** layout has them. The in-game menu switches between **Native**, **2D**, **3D** and **Tap** (Tap only in handheld mode), and the choice is kept. A phone that had another layout saved switches to Native once, on its first start of V12 or later.
+
+Code: `dm/ios/Sources/DmGamepad.m` (the `glass…` functions, `nat:centre:radius:`, `layoutNative:`, the Native branches of `btnAt:` and `touchesBegan:`), `dm/ios/Sources/GameMenu.swift`, profile key `pad_layout native` (`dm/games/game.py`).
+
+### Themes for the other layouts
+
+**Touch controls style** in the launcher (`DM_PAD_THEME`; profile key `pad_theme forest` for this game) colours the 2D, 3D and Tap layouts:
+
+- **Forest** (this game's default, since V8): an original palette after the N64 controller and the woods: blue A, green B, yellow X and Y like C buttons, red +, deep green shoulders, a bronze D-pad, gold rims and cream labels, all translucent.
+- **Classic:** upstream's translucent white.
+
+The Native layout keeps its glass look whatever the theme.
+
+### Physical controllers
+
+A controller (Backbone, Kishi, DualSense, Switch Pro and so on) hides the touch controls while it is connected; each controller is a player of its own. Only the menu button stays.
 
 ## Building, step by step
 

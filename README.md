@@ -1,6 +1,6 @@
 # nxnative
 
-> **kid with sword remake:** this fork runs The Legend of Zelda: Ocarina of Time (Switch 2, the v1 dump: base game plus update v131072) as a native iPhone and Mac app. How it was built, step by step, with what was changed and tested: [docs/games/kid-with-sword-remake.md](docs/games/kid-with-sword-remake.md).
+> **kid with sword remake:** this fork runs The Legend of Zelda: Ocarina of Time (Switch 2, the v1 dump: base game plus update v131072) as a native iPhone and Mac app. It has its own touch controls: a mobile-game layout in very transparent glass with icon keys, a floating stick and a camera drag ([Touch controls](docs/games/kid-with-sword-remake.md#touch-controls)). How it was built, step by step, with what was changed and tested: [docs/games/kid-with-sword-remake.md](docs/games/kid-with-sword-remake.md).
 
 Play your own Nintendo Switch games natively on iPhone and iPad. Bring your game (its NSP files) and your `prod.keys`; one script turns them into an IPA that you sideload.
 
