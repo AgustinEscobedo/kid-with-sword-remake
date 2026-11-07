@@ -294,7 +294,9 @@ HLE_FORCE("_ZN2nn2oe22SetCpuOverclockEnabledEb", "CPU overclock switch (through 
 // keeps only "tier 0" (byte +0xa of its event 5, main+0xba69970) and renders 0.8 times smaller below it: docked, 768x432 for its 1920x1080 window where tier 0 gives 960x540,
 // smaller than its 960x540 handheld on a GPU twice as fast; console footage matches tier 0. The host answered 1 docked until it was found so. DM_GFX_SCALE sets a tier to
 // reproduce a reduced share
-static int gfx_scale(void) { const char *e = getenv("DM_GFX_SCALE"); int v = e ? atoi(e) : 0; return v >= 0 && v <= 2 ? v : 0; }
+// Without DM_GFX_SCALE, the launcher's Resolution preset Potato (DM_RES_PRESET=1) answers tier 2: Ocarina of Time then renders 2/3 of its size into a 1280x720 frame (with the
+// potato-<mode>/ overlay at 0.75, 960x540 upscaled to 1280x720, the Mighty Green Kokiri Kid fork's 60 fps setting on an iPhone); Normal keeps tier 0
+static int gfx_scale(void) { const char *e = getenv("DM_GFX_SCALE"), *p = getenv("DM_RES_PRESET"); int v = e ? atoi(e) : p && (atoi(p) == 1 || !strcmp(p, "potato")) ? 2 : 0; return v >= 0 && v <= 2 ? v : 0; }
 HLE_FORCE("_ZN2nn2oe23GetCurrentGraphicsScaleEv", "graphics scale (Switch 2, through am): 0, the whole GPU (DM_GFX_SCALE sets 1 or 2)", int, h_oe_GfxScale, void) { return gfx_scale(); }
 HLE_FORCE("_ZN2nn2oe42SetGraphicsScaleChangedNotificationEnabledEb", "graphics scale change notification (Switch 2, through am); the host's scale never changes",
           void, h_oe_GfxScaleNotify, unsigned on) { (void)on; }
