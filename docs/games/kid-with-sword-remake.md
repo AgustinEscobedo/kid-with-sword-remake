@@ -39,6 +39,7 @@ Every iPhone build is numbered; its file is `OcarinaOfTime-V<n>.ipa` (the first 
 | V8 | `OcarinaOfTime-V8.ipa`, 3.2 GB, split | Four submit-thread savings from Xipzer (5-30% less submit CPU on the Mac), the GPU architecture in the log and the **Forest** touch-control theme | iPhone 18 Pro: 60 fps for about 45 s, then 33-46 fps once iOS lowers the CPU clock; at 30 fps a steady 30.0 at thermal state 2 (log 33) |
 | V9, V10 | `OcarinaOfTime-V9.ipa`, `-V10.ipa` | oot2's raw-read translator commits (shader chain `8c88ed8cda05`) and an A20 Pro pipeline archive (V10: kept outside the signed app) | iPhone: unstable for the player; V11 goes back to V8's code |
 | V11 | `OcarinaOfTime-V11.ipa`, split | V8 plus: Xipzer's frame workgroup (**Deadline boost**, on: `DM_FRAME_WG=1`), guest thread wakes after the scheduler lock, the remembered uniform-conflict answer, the readable-tile memo; oot2's indirect-draw conversion before a split pass (`20ff9a26`) and pool-table notes on storage takeovers (`054538f8`); thread classes by priority (`DM_QOS_MAP=1`, `DM_QOS_EDGES=45,59`). Fixed 720p, fixed frame step, shader chain `a093642c4546` | Mac: no crash, 60 fps p50 16.7 ms. Not yet on the iPhone |
+| V12 | `OcarinaOfTime-V12.ipa`, split | V11 plus the **Native** touch layout (profile `pad_layout native`): very transparent glass keys with icons and letter chips, a floating left stick, the camera on the right half. `tex_release` stays 2: level 1 cures the magenta and black textures after area changes (oot2 `7f8f8815`) but took a Mac play test from 9.0 to 10.6 GB, about 6.7 of the phone's 8 GB | Not yet on the iPhone |
 
 ## What you need
 
@@ -124,7 +125,7 @@ Every iPhone build is numbered; its file is `OcarinaOfTime-V<n>.ipa` (the first 
 | `mem_reserve`, `mem_alias` | `0x468000000`, `0x200000000` | 17.6 GB of guest address space with an 8 GB alias region for the streaming allocator (was 12 GB and 2.38 GB). Changed in V7 |
 | `mem_map_limit` | `on` | A map past the application pool fails as on Horizon; without it the game crashes entering some later areas. Added in V6 |
 | `fps_target` | `60` | Turns on the frame step and the launcher's **Frame rate** setting (30 / 60, default 60). Added in V4; see [Frame rate](#frame-rate) |
-| `pad_layout` | `full` | The iPhone's touch gamepad starts in the 3D layout: D-pad, L3 / R3, and a right stick that is not drawn (a drag in the right third of the screen) for the camera. The simple layout has no right stick. A layout picked in the game menu (the gear at the top centre) is kept. Added in V4 |
+| `pad_layout` | `native` | From V12 the touch gamepad starts in the Native layout: very transparent glass keys with icons (B sword, A tap, R shield, ZL target, X bag, Y grid, + menu, − map) and the button letter in a chip, round for face keys and square for shoulders; a floating left stick; the camera on any drag of the right half; the in-game menu (…) at the top right. 2D, 3D (D-pad, L3 / R3) and Tap stay in the in-game menu |
 | `upscaler_chain` | (four shader keys) | `DM_UPSCALER=metalfx` replaces the game's NDSR upscale chain with MetalFX |
 
 ## Resolution
