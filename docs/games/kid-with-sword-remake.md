@@ -130,7 +130,7 @@ Every iPhone build is numbered; its file is `OcarinaOfTime-V<n>.ipa` (the first 
 | `mem_reserve`, `mem_alias` | `0x468000000`, `0x200000000` | 17.6 GB of guest address space with an 8 GB alias region for the streaming allocator (was 12 GB and 2.38 GB). Changed in V7 |
 | `mem_map_limit` | `on` | A map past the application pool fails as on Horizon; without it the game crashes entering some later areas. Added in V6 |
 | `fps_target` | `60` | Turns on the frame step and the launcher's **Frame rate** setting (30 / 60, default 60). Added in V4; see [Frame rate](#frame-rate) |
-| `pad_layout` | `native` | From V12 the touch gamepad starts in the Native layout: very transparent glass keys with icons (B sword, A tap, R shield, ZL target, X bag, Y grid, + menu, − map) and the button letter in a chip, round for face keys and square for shoulders; a floating left stick; the camera on any drag of the right half; the in-game menu (…) at the top right. 2D, 3D (D-pad, L3 / R3) and Tap stay in the in-game menu |
+| `pad_layout` | `native` | From V12 the touch gamepad starts in the Native layout: very transparent glass keys with icons (B sword, A tap, R shield, ZL target, X jump, Y grid, + menu, − map) and the button letter in a chip, round for face keys and square for shoulders; a floating left stick; the camera on any drag of the right half; the in-game menu (…) at the top right. 2D, 3D (D-pad, L3 / R3) and Tap stay in the in-game menu |
 | `upscaler_chain` | (four shader keys) | `DM_UPSCALER=metalfx` replaces the game's NDSR upscale chain with MetalFX |
 
 ## Resolution
@@ -188,7 +188,7 @@ Very transparent "liquid glass" keys over the picture. Each key shows what it do
 | A | a tap | round **A** | left of B |
 | R | a shield | square **R** | above A |
 | ZL | a target | square **ZL** | above B, toward the middle |
-| X | a bag | round **X** | right edge, above B |
+| X | a jump (two up arrows) | round **X** | right edge, above B |
 | Y | a grid | round **Y** | right edge, above X |
 | + | a menu (three lines) | round **+** | top left |
 | − | a map | round **−** | top right |
