@@ -90,4 +90,4 @@ rt_lossy	on
 # before, 5.7 ms; side by side 3.7 ms, the frame 27.1 -> 24.9 ms (docked, Apple M4 Pro), the picture within run-to-run noise (from the Mighty Green Kokiri Kid fork, 5208584a)
 dispatch_overlap	on
 res_presets	on
-frame_wg	on
+frame_wg	off
