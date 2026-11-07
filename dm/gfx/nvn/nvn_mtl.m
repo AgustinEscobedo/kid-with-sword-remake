@@ -12623,10 +12623,13 @@ static int up_mfx_on(void);
 // MetalFX's spatial scaler from that colour into the last one's image (up_mfx_encode). Once the last one is refused, the chain's shaders run again from the next frame on
 static int g_up_chain_in;          // texture ID the first stage would have read, 0 when none this frame
 static int g_up_chain_refused;
+// The last stage may be one of several ("><last>|<last>..."): Ocarina of Time's agl_ndsr_vr picks its network by the scale from the render size to the output (aad7ea7e at 1280x720
+// to 1920x1080, b106afba at the Potato preset's 1169x658, fa3033d0 at 1.33x, 04135bb8 at 2x, 8df148d5 at 1.1x; oot2 12c5bfaa). With one last stage only, another network ended the
+// chain, MetalFX was refused and the game's own chain ran: the Potato preset saved no GPU time
 static int up_chain_role(NvShader *cs) {   // 1 a stage before the last (2: the first), 3 the last, 0 none
     static const char *c = DM_GAME_UPSCALER_CHAIN; if (!*c || !cs->key[0]) return 0;
     const char *last = strchr(c, '>'); if (!last) return 0;
-    if (!strncmp(last + 1, cs->key, 16)) return 3;
+    for (const char *l = last + 1; strlen(l) >= 16; l += 17) { if (!strncmp(l, cs->key, 16)) return 3; if (l[16] != '|') break; }
     for (const char *k = c; k < last; k += 17) if (!strncmp(k, cs->key, 16)) return k == c ? 2 : 1;
     return 0;
 }

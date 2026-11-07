@@ -208,7 +208,7 @@ def header_one(g):
     rtl = g.get('rt_lossy', 'off')   # colour render targets the GPU writes only as attachments made with Metal's lossy compression (about half the memory and bandwidth; nvn_mtl.m rt_lossy): on / off
     if rtl not in ('on', 'off'): sys.exit(f'{g.id}: rt_lossy must be on or off: {rtl}')
     upc = g.get('upscaler_chain', '')   # <stage>,<stage>...><last>: an upscaler that is a chain of shaders (16-digit keys); with DM_UPSCALER=metalfx the stages before the last are skipped and MetalFX scales the first stage's input into the last's image (nvn_mtl.m up_chain)
-    if upc and not re.fullmatch(r'[0-9a-f]{16}(,[0-9a-f]{16})*>[0-9a-f]{16}', upc): sys.exit(f'{g.id}: upscaler_chain takes <key>,<key>...><key>: {upc}')
+    if upc and not re.fullmatch(r'[0-9a-f]{16}(,[0-9a-f]{16})*>[0-9a-f]{16}(\|[0-9a-f]{16})*', upc): sys.exit(f'{g.id}: upscaler_chain takes <key>,<key>...><key>[|<key>...] (the last stage, or any of several): {upc}')
     fcp = g.get('fps_cap_present', 'off')   # fps_target / the player's frame rate held by presentation alone (hle_nvn.c fps_present_cap), for a game whose logic follows real time: on / off
     if fcp not in ('on', 'off'): sys.exit(f'{g.id}: fps_cap_present must be on or off: {fcp}')
     rtd = g.get('rt_drop', 'off')   # render targets whose storage a later-drawn render target took over, and idle since, kept as 1x1 stand-ins until drawn again (nvn_mtl.m rtd_sweep): on / off

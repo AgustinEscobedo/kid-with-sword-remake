@@ -82,7 +82,7 @@ pad_theme	forest
 # read about 0 and kept the full 1440x810 at 20-24 ms of GPU a frame on a MacBook Air M5. Each report takes its segment's GPU start / end (nvn_mtl.m rep_ticks)
 gpu_timestamps	segment
 # The game upscales through a chain: agl_ndsr_vr feature pass, network and blend at the render size, agl_ndsr_vr_light scale to 1920x1080. DM_UPSCALER=metalfx skips the chain for MetalFX (nvn_mtl.m up_chain)
-upscaler_chain	f8965bffbdf51d78,d17eefaff4f0bc23,a335c1db6270c355>aad7ea7e5c02f41d
+upscaler_chain	f8965bffbdf51d78,d17eefaff4f0bc23,a335c1db6270c355>aad7ea7e5c02f41d|b106afba1a18faa9|fa3033d05c0a41d6|04135bb812a0d66e|8df148d58b7cbe8e
 # Colour render targets drawn only as attachments (RGBA8 / BGRA8 / RGBA16F) kept with Metal lossy compression (rt_lossy, nvn_mtl.m rt_lossy): about 100 MB less in Link's house at 720p;
 # the scene colour (RG11B10F) and depth have no lossy form
 rt_lossy	on
