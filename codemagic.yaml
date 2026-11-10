@@ -8,15 +8,28 @@ workflows:
       xcode: "27.2"
 
     scripts:
-      - name: Verificar Xcode, SDK de iPhone y Metal
+      - name: Instalar y verificar Metal
         script: |
           set -e
-          uname -m
+          export DEVELOPER_DIR="/Applications/Xcode-27.2.app/Contents/Developer"
           xcodebuild -version
-          xcrun --sdk iphoneos --show-sdk-path
-          df -h .
 
-          if ! xcrun --sdk iphoneos metal --version; then
-            xcodebuild -downloadComponent metalToolchain
-            xcrun --sdk iphoneos metal --version
+          if ! xcrun --no-cache --sdk iphoneos metal --version; then
+            metal_dir="$(mktemp -d)"
+            xcodebuild -downloadComponent metalToolchain -exportPath "$metal_dir"
+
+            bundle="$(find "$metal_dir" -name '*.exportedBundle' -print -quit)"
+            if [ -n "$bundle" ]; then
+              xcodebuild -importComponent metalToolchain -importPath "$bundle"
+            else
+              dmg="$(find "$metal_dir" -name '*.dmg' -print -quit)"
+              if [ -z "$dmg" ]; then
+                echo "Xcode no dejó un archivo de Metal para importar." >&2
+                exit 1
+              fi
+              xcodebuild -importComponent metalToolchain "$dmg"
+            fi
           fi
+
+          xcrun --no-cache --sdk iphoneos metal --version
+          xcrun --no-cache --sdk macosx metal --version
