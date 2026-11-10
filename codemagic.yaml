@@ -1,0 +1,22 @@
+workflows:
+  probar-mac:
+    name: Probar Mac M2 para nxnative
+    instance_type: mac_mini_m2
+    max_build_duration: 30
+
+    environment:
+      xcode: "27.2"
+
+    scripts:
+      - name: Verificar Xcode, SDK de iPhone y Metal
+        script: |
+          set -e
+          uname -m
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-path
+          df -h .
+
+          if ! xcrun --sdk iphoneos metal --version; then
+            xcodebuild -downloadComponent metalToolchain
+            xcrun --sdk iphoneos metal --version
+          fi
